@@ -44,7 +44,19 @@ Two things worth being clear about, since both are easy to get backwards:
 
 The part diameter field is separate from the tool diameter and is only used to
 report the surface speed at the workpiece, since on a lathe SFM normally means
-the part, not the tool.
+the part, not the tool. It starts blank, because the part diameter is the most
+job-specific number on the page and a guess would just print a surface speed
+that looks like data but means nothing.
+
+The page opens on a coherent starting point rather than a placeholder: a 1/2 in
+carbide at 250 SFM, which is about 1,900 rpm and lands near 0.008 in/rev with
+four edges. 250 SFM is ordinary for carbide in mild steel, so the numbers on
+screen are ones you would recognise from real work. Pick a material preset to
+replace it with that material's own figures.
+
+Note that the speed box really is SFM. It briefly offered inches per minute under
+an SFM label, which meant a value twelve times larger than intended; the unit
+menu now offers SFM, m/min and in/min as separate, correctly scaled choices.
 
 ## Running it on your own machine
 

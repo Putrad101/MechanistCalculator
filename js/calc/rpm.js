@@ -18,11 +18,18 @@ export default panel({
     toolType: 'carbide',
     dia: '0.5',
     diaUnit: 'in',
-    vc: '100',
-    vcUnit: 'in',
+    // 250 SFM on a 1/2 in carbide is a coherent, recognisable starting point for
+    // general work in mild steel: about 1900 rpm, and roughly 0.008 in/rev at
+    // four edges. The old 100 in/min produced a plausible looking 8.3 SFM, which
+    // is a speed no material is ever run at.
+    vc: '250',
+    vcUnit: 'ft',
     machineMax: '4000',
-    flutes: '2',
-    partDia: '2',
+    flutes: '4',
+    // Left blank on purpose. The part diameter is the most job specific number
+    // on the page, and guessing one just prints a large surface speed that looks
+    // like data but means nothing. The row appears as soon as one is entered.
+    partDia: '',
     partDiaUnit: 'in',
   },
 
@@ -44,7 +51,12 @@ export default panel({
           field({ label: 'Cutting speed', name: 'vc', value: state.vc, unit: state.vcUnit, dim: 'speed' }),
           select({
             label: 'Speed unit', name: 'vcUnit', value: state.vcUnit,
-            options: [{ value: 'in', label: 'SFM' }, { value: 'm', label: 'm/min' }],
+            // 'ft' is the SFM unit, and it is the one the speed dimension
+            // reports in. This used to offer 'in' under an SFM label, so typing
+            // 250 into a box that said SFM was read as 250 in/min, which is
+            // 20.8 SFM. 'in' stays in the list, honestly labelled, because saved
+            // state may already be holding it.
+            options: [{ value: 'ft', label: 'SFM' }, { value: 'm', label: 'm/min' }, { value: 'in', label: 'in/min' }],
           }),
         ),
       ].join('')),

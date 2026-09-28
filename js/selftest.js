@@ -51,6 +51,18 @@ export const run = () => {
   // IPR is read off a feed dial, so it is shown to four decimals, not five.
   test('feed per revolution shows four decimals', units.fmt(units.fromCanonical(0.0711, 'in', 'perRev'), 4), '0.0028');
   test('feed per revolution shows four decimals in mm', units.fmt(0.0711, 4), '0.0711');
+
+  // The RPM speed box was labelled SFM while its value was read as in/min, so
+  // 250 in a box called SFM meant 20.8 SFM. Pin the real SFM unit down.
+  test('the speed unit labelled SFM is feet per minute', units.unitLabel('ft', 'speed'), 'SFM');
+  test('250 SFM is 76200 mm per min', units.toCanonical(250, 'ft', 'speed'), 76200);
+  test('250 SFM survives a round trip', units.fromCanonical(units.toCanonical(250, 'ft', 'speed'), 'ft', 'speed'), 250);
+  test('250 SFM is not read as 250 in/min', units.fromCanonical(units.toCanonical(250, 'ft', 'speed'), 'in', 'speed'), 3000);
+
+  // The shipped default page should be a setup a machinist would recognise.
+  near('the default 250 SFM on a half inch carbide is about 1900 rpm', F.rpmFromCuttingSpeedMM(units.toCanonical(250, 'ft', 'speed'), 12.7), 1909, 1);
+  near('half inch carbide at four edges gives about 0.008 in/rev', F.feedPerRevolution(F.chipLoadFromToolDia(12.7), 4) / F.MM_PER_IN, 0.0079, 0.0001);
+  near('the default setup lands on a sane table feed', F.feedFromToothLoad(1909, F.chipLoadFromToolDia(12.7), 4) / F.MM_PER_IN, 15, 0.1);
   near('FPR and feed agree: IPM = FPR x rpm', F.feedFromToothLoad(800, 0.05 * 25.4, 2), F.feedPerRevolution(0.05 * 25.4, 2) * 800, 1e-9);
 
   near('118 degree point on a 10 mm drill', F.drillPointLength(10, 118), 3.0043, 0.001);

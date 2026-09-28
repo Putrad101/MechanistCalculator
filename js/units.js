@@ -69,6 +69,13 @@ export const toCanonical = (value, unit, dim = 'length') => convert(value, unit,
 export const fromCanonical = (value, unit, dim = 'length') => convert(value, DIMS[dim].src, unit, dim);
 
 export const unitLabel = (unit, dim = 'length') => {
+  const d = DIMS[dim];
+  // Prefer the label the dimension declares for the shop facing name, so a feed
+  // input reads IPM or in/rev rather than a bare in, and a speed input reads SFM
+  // rather than ft. Falling through to the raw unit keeps thou, cm and friends
+  // working for units the dimension does not name.
+  if (d && unit && unit === d.imp && d.impLabel) return d.impLabel;
+  if (d && unit && unit === d.si && d.siLabel) return d.siLabel;
   const table = DIM_TABLES[dim];
   return (table && table[unit] && table[unit].label) || unit || '';
 };

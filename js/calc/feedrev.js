@@ -107,7 +107,7 @@ export default panel({
     const results = [
       { label: 'Feed per revolution', dim: 'perRev', value: perRevMm, hint: 'The FPR number. This is what the feed dial shows.' },
       { label: 'Table feed', dim: 'perMin', value: feedMm, hint: 'What goes in the F word in G-code.' },
-      { label: 'Feed per tooth', dim: 'perTooth', value: iptMm, hint: 'Per tooth per tooth. Divide by flutes to get IPR, multiply by flutes to get IPM.' },
+      { label: 'Feed per tooth', dim: 'perTooth', value: iptMm, hint: 'Per tooth. Divide by flutes to get IPR, multiply by flutes to get IPM.' },
     ];
 
     const notes = [
