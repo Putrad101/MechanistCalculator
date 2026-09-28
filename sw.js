@@ -1,4 +1,6 @@
-const VERSION = 'mechcalc-v2';
+// Bump this whenever anything in SHELL changes. It is the only cache key these
+// unhashed URLs have, so a new value is what evicts the previous build.
+const VERSION = 'mechcalc-v3';
 const SHELL = [
   './',
   './index.html',
@@ -55,21 +57,23 @@ self.addEventListener('fetch', (ev) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
 
+  // Network first, cache second.
+  //
+  // The app is a set of unhashed URLs, so there is no way to invalidate them by
+  // name. Serving the cached copy first and refreshing in the background means a
+  // freshly deployed fix is invisible on the first load after the push, and on an
+  // installed app that is every load the shop sees for a while. Going to the
+  // network first guarantees a phone shows the current build whenever it has
+  // signal, and the cache is still there for when it does not.
   ev.respondWith(
-    caches.match(req).then((hit) => {
-      if (hit) {
-        fetch(req).then((res) => {
-          if (res && res.ok) caches.open(VERSION).then((c) => c.put(req, res.clone()));
-        }).catch(() => {});
-        return hit;
-      }
-      return fetch(req).then((res) => {
+    fetch(req)
+      .then((res) => {
         if (res && res.ok && res.type === 'basic') {
           const copy = res.clone();
           caches.open(VERSION).then((c) => c.put(req, copy));
         }
         return res;
-      }).catch(() => caches.match('./index.html'));
-    }),
+      })
+      .catch(() => caches.match(req).then((hit) => hit || caches.match('./index.html'))),
   );
 });

@@ -7,6 +7,9 @@ import { openMaterials } from './materialsui.js';
 const mounted = new Map();
 let current = null;
 
+// Keep in step with VERSION in sw.js.
+const BUILD_ID = 'mechcalc-v3';
+
 const navList = qs('#nav-list');
 const calcHost = qs('#calc-host');
 const searchInput = qs('#search');
@@ -71,6 +74,8 @@ const openSettings = () => {
   sheet.hidden = false;
   qs('#settings-close').focus();
   renderSettingsBody();
+  stampBuild();
+  checkForUpdate();
   qs('#settings-scrim').hidden = false;
 };
 
@@ -159,8 +164,37 @@ const renderSettingsBody = () => {
     section('About', `
       <p class="hint-text">Cutting data in here is a starting point, not a promise. The bronze SAE 660 and SAE 955 rows in particular are unverified guesses and are marked as such. Always prove a material on a scrap piece before you commit a real part.</p>
       <p class="hint-text">Add a calculator by dropping one file into <code>js/calc/</code> and adding one import line to <code>js/registry.js</code>.</p>
+      <p class="hint-text">Build <strong id="build-stamp">checking&hellip;</strong> &middot; <button type="button" class="btn btn-sm" data-act="reload">Check for a newer build</button></p>
     `),
   ].join('');
+};
+
+// The build stamp is the fastest way to settle "am I looking at the current
+// version or a cached one" without asking anyone to clear site data. The
+// service worker serves this file from the network when it can, so a new number
+// here means a new build actually reached this device.
+const stampBuild = () => {
+  const el = qs('#build-stamp');
+  if (!el) return;
+  const done = () => { el.textContent = navigator.serviceWorker?.controller ? `served by the offline cache, build ${BUILD_ID}` : `not installed as an app, build ${BUILD_ID}`; };
+  if (navigator.serviceWorker?.controller) done();
+  else navigator.serviceWorker?.ready.then(done).catch(() => { el.textContent = `offline cache unavailable, build ${BUILD_ID}`; });
+};
+
+const checkForUpdate = async (manual = false) => {
+  const el = qs('#build-stamp');
+  if (el) el.textContent = 'checking...';
+  try {
+    const fresh = await caches.open('mechcalc-v3');
+    const hit = await fresh.match('./sw.js', { ignoreSearch: true });
+    const reg = await navigator.serviceWorker?.getRegistration();
+    await reg?.update();
+    if (manual) alert('Checked for a newer build. If the number above did not change, you already have the latest.');
+    stampBuild();
+    if (!hit) return;
+  } catch {
+    if (el) el.textContent = `could not reach the server, build ${BUILD_ID} is the one on disk`;
+  }
 };
 
 let wakeLock = null;
@@ -243,6 +277,7 @@ const wireShell = () => {
 
 const doAction = async (act) => {
   const mats = await import('./materials.js');
+  if (act === 'reload') { checkForUpdate(true); return; }
   if (act === 'open-materials') { closeSettings(); openMaterials(); return; }
   if (act === 'export-mats') {
     const { downloadText } = await import('./ui.js');

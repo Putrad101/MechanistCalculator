@@ -177,7 +177,17 @@ export const escapeHtml = (s) => String(s ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
-const groupDigits = (s) => s.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+// Group the thousands in the whole string and the decimal part gets a separator
+// in it too, because the decimal point is a non-word character the lookahead
+// happily walks across: 0.00280 came out as "0.00,280" and 1.1765 as "1.1,765".
+// Only the integer side is ever meant to be grouped.
+const groupDigits = (s) => {
+  const dot = s.indexOf('.');
+  if (dot === -1) return s.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const int = s.slice(0, dot);
+  const frac = s.slice(dot);
+  return int.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + frac;
+};
 
 export const fmt = (value, dp = 3) => {
   if (value == null || !Number.isFinite(value)) return '—';

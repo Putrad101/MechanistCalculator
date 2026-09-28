@@ -39,6 +39,14 @@ export const run = () => {
   test('FPR is unaffected by spindle speed', F.feedPerRevolution(0.05 * 25.4, 2) === F.feedPerRevolution(0.05 * 25.4, 2), true);
   test('the count dimension converts without error', units.toCanonical(2, 'each', 'count'), 2);
   test('the count dimension labels as edges', units.unitLabel('each', 'count'), 'edges');
+
+  // Regression: thousands grouping used to run across the decimal point, so any
+  // result needing more than two decimal places came out as 0.00,280.
+  test('fmt does not group the decimal part', units.fmt(0.0028, 5), '0.00280');
+  test('fmt does not group a small feed', units.fmt(1.1765, 4), '1.1765');
+  test('fmt does not group a small metric feed', units.fmt(0.0711, 4), '0.0711');
+  test('fmt still groups the integer part', units.fmt(12345.678, 3), '12,345.678');
+  test('fmt leaves a two decimal result alone', units.fmt(29.88, 2), '29.88');
   near('FPR and feed agree: IPM = FPR x rpm', F.feedFromToothLoad(800, 0.05 * 25.4, 2), F.feedPerRevolution(0.05 * 25.4, 2) * 800, 1e-9);
 
   near('118 degree point on a 10 mm drill', F.drillPointLength(10, 118), 3.0043, 0.001);
