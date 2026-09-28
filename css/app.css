@@ -481,6 +481,9 @@ body { min-height: 100dvh; }
 .mat-name { font-size: 0.9rem; }
 .mat-meta { font-size: 0.72rem; color: var(--fg-3); font-family: var(--mono); }
 .unverified { color: var(--warn); font-style: normal; font-weight: 700; }
+.hardness { font-style: normal; font-weight: 700; text-transform: lowercase; padding: 0 0.3em; border-radius: 0.25em; font-size: 0.9em; }
+.hardness.is-soft { color: var(--acc); background: color-mix(in srgb, var(--acc) 15%, transparent); }
+.hardness.is-hard { color: var(--warn); background: color-mix(in srgb, var(--warn) 15%, transparent); }
 .mat-editor { border-top: 1px solid var(--line); margin-top: 1rem; padding-top: 1rem; }
 .mat-editor-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
 .mat-editor-head h3 { margin: 0; font-size: 0.95rem; }

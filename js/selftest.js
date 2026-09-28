@@ -27,6 +27,20 @@ export const run = () => {
   near('feed per revolution from 40 IPM at 800 rpm', 40 / 800, 0.05, 1e-12);
   near('tooth load from 0.05 IPR at 800 rpm in 2 flutes', F.toothLoadFromFeed(800, 0.05 * 25.4 * 800, 2), 0.025 * 25.4, 1e-9);
 
+  // Feed per revolution and the surface speed at the part. FPR is chip load
+  // times edges; it does not depend on spindle speed, and SFM does not set it.
+  near('feed per revolution is chip load times edges', F.feedPerRevolution(0.05 * 25.4, 2), 0.1 * 25.4, 1e-9);
+  near('one edge is just the chip load', F.feedPerRevolution(0.03 * 25.4, 1), 0.03 * 25.4, 1e-9);
+  near('chip load on a 1/2 in carbide tool', F.chipLoadFromToolDia(12.7), 0.05, 1e-9);
+  near('chip load on a 1 in carbide tool', F.chipLoadFromToolDia(25.4), 0.1, 1e-9);
+  near('chip load scales with diameter', F.chipLoadFromToolDia(25.4) / F.chipLoadFromToolDia(12.7), 2, 1e-9);
+  near('speed at a 2 in part is 220 SFM at 420 rpm', units.fromCanonical(F.cuttingSpeedMMFromRpm(420, 50.8), 'ft', 'speed'), 220, 0.1);
+  near('speed at the part is the same relation as the tool', units.fromCanonical(F.cuttingSpeedMMFromRpm(763.9437, 12.7), 'ft', 'speed'), 100, 0.01);
+  test('FPR is unaffected by spindle speed', F.feedPerRevolution(0.05 * 25.4, 2) === F.feedPerRevolution(0.05 * 25.4, 2), true);
+  test('the count dimension converts without error', units.toCanonical(2, 'each', 'count'), 2);
+  test('the count dimension labels as edges', units.unitLabel('each', 'count'), 'edges');
+  near('FPR and feed agree: IPM = FPR x rpm', F.feedFromToothLoad(800, 0.05 * 25.4, 2), F.feedPerRevolution(0.05 * 25.4, 2) * 800, 1e-9);
+
   near('118 degree point on a 10 mm drill', F.drillPointLength(10, 118), 3.0043, 0.001);
   near('135 degree point on a 10 mm drill', F.drillPointLength(10, 135), 2.0711, 0.001);
   near('chord on a 100 mm circle, 6 holes, neighbours', F.chordAcross(100, 6, 1), 50, 0.0001);
@@ -110,6 +124,15 @@ export const run = () => {
   test('SAE 660 has HSS data', !!mat.getMaterial('bronze-660').tools.hss, true);
   test('SAE 660 has coated carbide data', !!mat.getMaterial('bronze-660').tools.coated, true);
   test('at least 20 materials seeded', mat.listMaterials().length >= 20, true);
+
+  // Shop standard: SAE 660 runs soft, SAE 955 runs hard.
+  test('SAE 660 bronze is classed soft', mat.getMaterial('bronze-660').hardness, 'soft');
+  test('SAE 955 bronze is classed hard', mat.getMaterial('bronze-955').hardness, 'hard');
+  test('SAE 660 is not labelled hard in its name', /hard bearing bronze/.test(mat.getMaterial('bronze-660').name), false);
+  test('soft bronze takes more IPT than hard bronze',
+    mat.getMaterial('bronze-660').tools.carbide.ipt > mat.getMaterial('bronze-955').tools.carbide.ipt, true);
+  test('every material has a valid hardness class',
+    mat.listMaterials().every((m) => ['soft', 'medium', 'hard'].includes(m.hardness)), true);
 
   const outOfRange = T.THREADS_UN.filter((t) => {
     const p = 1 / t.tpi;

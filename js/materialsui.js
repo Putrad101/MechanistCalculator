@@ -56,6 +56,14 @@ const close = closeMaterials;
 let filter = '';
 let editing = null;
 
+// Medium is the default for most rows, so only tag the ones that are called out.
+// Otherwise every line in the list carries the same badge and it says nothing.
+const hardnessTag = (id) => {
+  if (id === 'soft') return '<em class="hardness is-soft">soft</em> ';
+  if (id === 'hard') return '<em class="hardness is-hard">hard</em> ';
+  return '';
+};
+
 const renderResults = () => {
   const list = qs('#mat-results', host);
   if (!list) return;
@@ -70,7 +78,7 @@ const renderResults = () => {
         <li class="mat-item${editing === m.id ? ' is-editing' : ''}">
           <button type="button" class="mat-open" data-act="edit" data-id="${units.escapeHtml(m.id)}">
             <span class="mat-name">${units.escapeHtml(m.name)}</span>
-            <span class="mat-meta">${m.verified === false ? '<em class="unverified">unverified</em> ' : ''}carbide ${units.fmt(m.tools.carbide ? m.tools.carbide.sfm : 0, 0)} SFM</span>
+            <span class="mat-meta">${m.verified === false ? '<em class="unverified">unverified</em> ' : ''}${hardnessTag(m.hardness)}carbide ${units.fmt(m.tools.carbide ? m.tools.carbide.sfm : 0, 0)} SFM &middot; IPT ${units.fmt(m.tools.carbide ? m.tools.carbide.ipt : 0, 4)}</span>
           </button>
         </li>`).join('')}</ul>
     `).join('')}
@@ -120,6 +128,13 @@ const renderEditor = (m) => {
     </div>
     <div class="row">
       ${select({ label: 'Group', name: 'group', value: m.group, options: mat.MATERIAL_GROUPS })}
+      ${select({
+        label: 'Shop hardness call', name: 'hardness', value: m.hardness || 'medium',
+        options: mat.HARDNESS.map((h) => ({ value: h.id, label: h.label })),
+        hint: (mat.HARDNESS.find((h) => h.id === (m.hardness || 'medium')) || {}).hint,
+      })}
+    </div>
+    <div class="row">
       ${field({ label: 'Specific cutting force kc (N/mm2)', name: 'kc', value: units.fmt(m.kc, 0), step: 50, hint: 'Used for the horsepower figure in the MRR calculator.' })}
     </div>
     <div class="mat-tools-grid">${mat.TOOL_TYPES.map((t) => sfField(m, t, 't')).join('')}</div>

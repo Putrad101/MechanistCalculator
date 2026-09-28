@@ -21,6 +21,9 @@ export default panel({
     vc: '100',
     vcUnit: 'in',
     machineMax: '4000',
+    flutes: '2',
+    partDia: '2',
+    partDiaUnit: 'in',
   },
 
   body(state) {
@@ -45,6 +48,21 @@ export default panel({
           }),
         ),
       ].join('')),
+      section('Feed per revolution (carbide)', [
+        `<p class="hint-text">Feed per rev is set by chip load and the number of edges, not by surface speed. `
+        + `Pick a material preset to use its IPT, otherwise the chip load is scaled from the tool diameter. `
+        + `The part diameter is only used to report the surface speed at the workpiece.</p>`,
+        fieldRow(
+          field({ label: 'Number of cutting edges / flutes', name: 'flutes', value: state.flutes, unit: 'each', dim: 'count', step: 1 }),
+        ),
+        fieldRow(
+          field({ label: 'Part diameter', name: 'partDia', value: state.partDia, unit: state.partDiaUnit, dim: 'length' }),
+          select({
+            label: 'Part unit', name: 'partDiaUnit', value: state.partDiaUnit,
+            options: [{ value: 'in', label: 'inch' }, { value: 'mm', label: 'mm' }],
+          }),
+        ),
+      ].join('')),
       section('Machine limit (optional)', fieldRow(
         field({ label: 'Max spindle speed', name: 'machineMax', value: state.machineMax, unit: 'rpm', dim: 'rpm', step: 100 }),
       ) + notice('Only used as a sanity check. On a manual machine you are limited by the pulley steps you actually have, not by this number.', 'info')),
@@ -55,6 +73,7 @@ export default panel({
     if (key === 'matId' || key === 'toolType') applyPreset(root, state, [['vc', state.vcUnit, 'speed']]);
     if (key === 'diaUnit') convertField(root, 'dia', 'length', state.diaUnit);
     if (key === 'vcUnit') convertField(root, 'vc', 'speed', state.vcUnit);
+    if (key === 'partDiaUnit') convertField(root, 'partDia', 'length', state.partDiaUnit);
   },
 
   compute(state) {
@@ -84,15 +103,37 @@ export default panel({
       ? `Loaded from the material table: ${units.fmt(preset.sfm, 1)} SFM / ${units.fmt(preset.ipt, 5)} IPT. Edit the cutting speed above if you want to run something else.`
       : 'No material preset selected, so the cutting speed above is whatever you typed in.';
 
+    // Feed per revolution. Chip load comes from the material table when a preset
+    // is loaded, otherwise from the carbide-by-diameter rule.
+    const flutes = Math.max(1, Math.round(units.parseValue(state.flutes) || 1));
+    const fzMm = preset ? preset.ipt * F.MM_PER_IN : F.chipLoadFromToolDia(diaMm);
+    const fprMm = F.feedPerRevolution(fzMm, flutes);
+    const feedMmMin = F.feedFromToothLoad(rpm, fzMm, flutes);
+    const feedNote = preset
+      ? `Chip load ${units.fmt(preset.ipt, 5)} in/tooth from the material table, so ${units.fmt(fzMm * flutes / F.MM_PER_IN, 5)} in/rev at ${units.fmt(flutes, 0)} edge(s).`
+      : `No material preset, so chip load is estimated at ${units.fmt(fzMm / F.MM_PER_IN, 5)} in/tooth from the ${units.fmt(diaMm / F.MM_PER_IN, 3)} in tool diameter. Set a material preset to use the table value instead.`;
+
+    // Surface speed at the workpiece, which is what SFM normally refers to on a
+    // lathe. It is reported here only; it does not set the feed.
+    const partDiaMm = units.toCanonical(units.parseValue(state.partDia), state.partDia__unit || state.partDiaUnit, 'length');
+    const results = [
+      { label: 'Spindle speed', dim: 'rpm', value: rpm },
+      { label: 'Cutting speed', dim: 'speed', value: F.cuttingSpeedMMFromRpm(rpm, diaMm) },
+      { label: 'Feed per revolution', dim: 'perRev', value: fprMm },
+      { label: 'Resulting feed', dim: 'perMin', value: feedMmMin },
+    ];
+    if (Number.isFinite(partDiaMm) && partDiaMm > 0) {
+      results.push({ label: 'Speed at the part', dim: 'speed', value: F.cuttingSpeedMMFromRpm(rpm, partDiaMm) });
+    }
+
     return {
-      results: [
-        { label: 'Spindle speed', dim: 'rpm', value: rpm },
-        { label: 'Cutting speed', dim: 'speed', value: F.cuttingSpeedMMFromRpm(rpm, diaMm) },
-      ],
+      results,
       notes: [
         'n = 1000 &times; Vc / (&pi; &times; D), with Vc in m/min and D in mm.',
+        'FPR = chip load &times; edges. FPR does not follow from SFM; the two are set independently. Once the speed is known, IPM = FPR &times; RPM.',
         'Flute count does not change the surface speed. It only changes how much feed you need to hold that speed.',
         presetNote,
+        feedNote,
       ],
       warnings: [matAdvisory(state.matId), ...warnings].filter(Boolean),
     };

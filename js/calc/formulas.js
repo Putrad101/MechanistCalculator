@@ -39,6 +39,17 @@ export const toothLoadFromFeed = (rpm, feedMmPerMin, flutes) => {
 
 export const toothLoadFromRpmFeed = toothLoadFromFeed;
 
+// Feed per revolution is chip load times the number of cutting edges. It is
+// independent of surface speed: spindle speed and feed per rev are separate
+// axes, and one cannot be derived from the other.
+export const feedPerRevolution = (fzMm, flutes) => (fzMm * flutes);
+
+// Shop rule of thumb for a general purpose carbide insert: chip load scales with
+// tool diameter, so small tools get a small absolute load and big tools a big
+// one. About 0.10 mm per tooth for every 25.4 mm (1 in) of diameter, which lands
+// near 0.002 in/tooth on a 1/2 in tool and 0.004 in/tooth on a 1 in tool.
+export const chipLoadFromToolDia = (diaMm, mmPerInOfDia = 0.1) => (diaMm / 25.4) * mmPerInOfDia;
+
 export const stepover = (diaMm, pct) => {
   if (!valid(diaMm, pct)) return NaN;
   return (diaMm * pct) / 100;

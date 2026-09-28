@@ -63,7 +63,7 @@ export const select = (o) => {
     .join('');
   return `
 <label class="field field-select" for="${id}">
-  <span class="field-label">${units.escapeHtml(o.label)}</span>
+  <span class="field-label">${units.escapeHtml(o.label)}${o.hint ? `<em class="hint" title="${units.escapeHtml(o.hint)}">?</em>` : ''}</span>
   <span class="field-body">
     <select id="${id}" name="${o.name}" data-f="${o.name}">${options}</select>
   </span>

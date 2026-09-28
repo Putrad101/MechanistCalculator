@@ -11,7 +11,7 @@ kind. Plain HTML, CSS and JavaScript modules.
 
 | Calculator | What it answers |
 | --- | --- |
-| **RPM** | Spindle speed for a tool diameter and a cutting speed, in either direction. |
+| **RPM** | Spindle speed for a tool diameter and a cutting speed, in either direction, plus the recommended feed per revolution and the resulting feed. |
 | **Table Feed** | IPM or mm/min from rpm, chip load and flute count, and the nearest value on the machine's feed table. |
 | **FPR** | Feed per revolution (IPR) to table feed, or back the other way. |
 | **Bolt Circle** | Hole coordinates, chord spacing, and the bolt circle diameter that gives a target chord. |
@@ -22,6 +22,29 @@ kind. Plain HTML, CSS and JavaScript modules.
 
 Every result shows both units at once. The unit toggle in the header only decides
 which one is bolded and which unit the input fields start in.
+
+### Feed per revolution on the RPM calculator
+
+The RPM calculator also reports a recommended feed per revolution, because that is
+the other number you normally set at the same time as the speed.
+
+Two things worth being clear about, since both are easy to get backwards:
+
+- **Feed per revolution does not follow from surface speed.** SFM and IPR are
+  independent axes. SFM sets how fast the edge travels, IPR sets how far the tool
+  advances per turn, and you cannot derive one from the other. A job at 200 SFM
+  and one at 60 SFM can want exactly the same IPR. For what it's worth,
+  `SFM x 12 / (pi x D)` is the spindle-speed formula rearranged, not a feed
+  formula.
+- **FPR is chip load times the number of cutting edges.** The chip load comes from
+  the material's IPT in the table when a material preset is selected. With no
+  preset it falls back to a carbide rule of thumb of about 0.10 mm per tooth for
+  every 25.4 mm of tool diameter, which lands near 0.002 in/tooth on a 1/2 in
+  tool. Once the speed is known, IPM = FPR x RPM.
+
+The part diameter field is separate from the tool diameter and is only used to
+report the surface speed at the workpiece, since on a lathe SFM normally means
+the part, not the tool.
 
 ## Running it on your own machine
 
@@ -73,6 +96,17 @@ Two rows are flagged **unverified** because they are reasoned guesses rather tha
 values from a handbook: bronze SAE 660 and bronze SAE 955. They are marked as
 such in the app. Prove any material on a scrap piece before you commit a real
 part to it.
+
+Each material also carries a **shop hardness call** of soft, medium or hard. This
+is deliberately separate from the material group, because two alloys in the same
+group can still want very different feeds. The shipped values follow this shop's
+standard: SAE 660 runs **soft** and takes more feed, SAE 955 runs **hard** and is
+run lighter. Treat that split as a shop convention rather than a metallurgical
+claim, and change the IPT if your machine disagrees.
+
+When a shipped seed value changes, existing browsers pick it up through a version
+key. The migration only rewrites a material that still matches the previous seed
+exactly, so anything you have edited by hand is left alone.
 
 ## G-code
 
@@ -145,6 +179,7 @@ The browser side has three suites. Start the server first, then open:
 | `index.html?selftest=1` | 77 maths and unit-parsing assertions, listed with pass and fail. |
 | `tests/smoke.html` | Mounts all eight calculators, computes, and drives every segmented control and stepper. |
 | `tests/shell.html` | Drives the real app in an iframe: navigation, search, unit toggle, settings, and the materials manager. |
+| `tests/migrate.html` | Proves the material seed migration upgrades untouched rows and never overwrites a hand-edited one. |
 
 None of these need a test framework. They are ES modules and plain Python on
 purpose, so they run anywhere the app does.

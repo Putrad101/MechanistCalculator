@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>material seed migration</title></head>
+<body>
+<pre id="out">running...</pre>
+<script type="module">
+const out = document.getElementById('out');
+const log = [];
+const paint = () => { out.textContent = log.join('\n'); };
+const ok = (label, cond) => log.push(`${cond ? 'pass' : 'FAIL'}  ${label}`);
+
+const NS = 'mechcalc';
+const KEY = `${NS}:materials`;
+const VER = `${NS}:materialsVersion`;
+
+// The shape that shipped as version 1: no hardness field, and both bronzes
+// carried the same 60 SFM / 0.0018 IPT values.
+const v1BronzeTools = () => ({
+  carbide: { sfm: 60, ipt: 0.0018 },
+  coated: { sfm: 75, ipt: 0.0020 },
+  hss: { sfm: 20, ipt: 0.0008 },
+  cermet: null,
+});
+
+const seedV1 = (extra) => {
+  localStorage.setItem(KEY, JSON.stringify([
+    { id: 'bronze-660', name: 'Bronze SAE 660 / UNS C95800 (hard bearing bronze)', group: 'Bronze', kc: 1900, verified: false, tools: v1BronzeTools(), notes: 'old note' },
+    { id: 'bronze-955', name: 'Bronze SAE 955 / UNS C93700 (hard bearing bronze)', group: 'Bronze', kc: 1900, verified: false, tools: v1BronzeTools(), notes: 'old note' },
+    { id: 'steel-1018', name: 'Mild steel 1018 / A36', group: 'Steel', kc: 1500, verified: true, tools: { carbide: { sfm: 120, ipt: 0.0030 }, coated: { sfm: 140, ipt: 0.0030 }, hss: { sfm: 60, ipt: 0.0018 }, cermet: { sfm: 250, ipt: 0.0025 } }, notes: '' },
+    ...extra,
+  ]));
+  localStorage.removeItem(VER);
+};
+
+try {
+  const mod = await import('../js/materials.js');
+
+  log.push('--- untouched version 1 data is upgraded ---');
+  seedV1([]);
+  let list = mod.listMaterials();
+  const b660 = list.find((m) => m.id === 'bronze-660');
+  const b955 = list.find((m) => m.id === 'bronze-955');
+  ok('660 becomes soft', b660.hardness === 'soft');
+  ok('955 becomes hard', b955.hardness === 'hard');
+  ok('660 gets the softer feed', b660.tools.carbide.ipt > b955.tools.carbide.ipt);
+  ok('660 name no longer says hard', !/hard bearing bronze/.test(b660.name));
+  ok('other seeded material untouched', list.find((m) => m.id === 'steel-1018').tools.carbide.sfm === 120);
+  ok('version key is written', Number(localStorage.getItem(VER)) >= 2);
+
+  log.push('');
+  log.push('--- a shop edit is never thrown away ---');
+  seedV1([{ id: 'my-own', name: 'Shop alloy', group: 'Other', kc: 1500, verified: true, tools: { carbide: { sfm: 90, ipt: 0.0025 } }, notes: '' }]);
+  const mine = JSON.parse(JSON.stringify(v1BronzeTools()));
+  mine.carbide = { sfm: 44, ipt: 0.0011 };
+  const v1 = JSON.parse(localStorage.getItem(KEY));
+  v1.find((m) => m.id === 'bronze-955').tools = mine;
+  localStorage.setItem(KEY, JSON.stringify(v1));
+  list = mod.listMaterials();
+  const edited = list.find((m) => m.id === 'bronze-955');
+  ok('edited 955 keeps the shop feed', edited.tools.carbide.ipt === 0.0011 && edited.tools.carbide.sfm === 44);
+  ok('edited 955 is not re-classed as hard', edited.hardness !== 'hard');
+  ok('user material survives the migration', !!list.find((m) => m.id === 'my-own'));
+
+  log.push('');
+  log.push('--- a second load does not migrate again ---');
+  const first = JSON.stringify(mod.listMaterials());
+  const second = JSON.stringify(mod.listMaterials());
+  ok('repeat load is stable', first === second);
+
+  log.push('');
+  const bad = log.filter((l) => l.startsWith('FAIL')).length;
+  log.push(bad ? `${bad} FAILURE(S)` : 'all migration checks passed');
+} catch (err) {
+  log.push(`ABORTED: ${err && err.message ? err.message : err}`);
+  if (err && err.stack) log.push(err.stack);
+}
+paint();
+document.title = 'migration done';
+</script>
+</body>
+</html>

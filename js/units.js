@@ -28,6 +28,7 @@ export const VOLUME_UNITS = {
 export const DIM_TABLES = {
   length: LENGTH_UNITS, perMin: LENGTH_UNITS, perRev: LENGTH_UNITS,
   perTooth: LENGTH_UNITS, speed: LENGTH_UNITS, area: AREA_UNITS, volume: VOLUME_UNITS,
+  count: { each: { label: 'edges', f: 1 } },
 };
 
 export const DIMS = {
@@ -37,6 +38,7 @@ export const DIMS = {
   perTooth: { src: 'mm',  imp: 'in',  si: 'mm',  impLabel: 'in/tooth', siLabel: 'mm/tooth', impDp: 5, siDp: 4 },
   speed:    { src: 'mm',  imp: 'ft',  si: 'm',   impLabel: 'SFM',      siLabel: 'm/min',    impDp: 1, siDp: 1 },
   rpm:      { src: null,  imp: null,  si: null,  impLabel: 'rpm',      siLabel: 'rpm',      impDp: 0, siDp: 0 },
+  count:    { src: 'each', imp: 'each', si: 'each', impLabel: 'edges',   siLabel: 'edges',    impDp: 0, siDp: 0 },
   area:     { src: 'mm2', imp: 'in2', si: 'mm2', impLabel: 'in²',      siLabel: 'mm²',      impDp: 4, siDp: 2 },
   volume:   { src: 'mm3', imp: 'in3', si: 'mm3', impLabel: 'in³',      siLabel: 'mm³',      impDp: 4, siDp: 2 },
   angle:    { src: 'deg', imp: null,  si: null,  impLabel: '°',        siLabel: '°',        impDp: 2, siDp: 2 },

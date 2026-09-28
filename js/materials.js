@@ -12,6 +12,17 @@ export const MATERIAL_GROUPS = [
   'Bronze', 'Titanium', 'Nickel alloys', 'Plastics', 'Other',
 ];
 
+// How the material responds to the cut, which is not the same thing as the
+// group. Two alloys can sit in the same group and still want very different
+// feeds, so the shop's own soft/medium/hard call is recorded per material.
+export const HARDNESS = [
+  { id: 'soft', label: 'Soft', hint: 'Drags easily, takes a heavier feed before it grabs' },
+  { id: 'medium', label: 'Medium', hint: 'Normal shop material' },
+  { id: 'hard', label: 'Hard', hint: 'Needs a light feed and a sharp edge to stay ahead of it' },
+];
+
+const HARDNESS_IDS = HARDNESS.map((h) => h.id);
+
 const S = (sfm, ipt) => ({ sfm, ipt });
 
 const SEED = [
@@ -66,19 +77,20 @@ const SEED = [
     notes: 'Tougher than grey iron, more tool wear. Higher penetration pressure.',
   },
   {
-    id: 'bronze-660', name: 'Bronze SAE 660 / UNS C95800 (hard bearing bronze)', group: 'Bronze', kc: 1900,
-    verified: false,
-    tools: { carbide: S(60, 0.0018), coated: S(75, 0.0020), hss: S(20, 0.0008), cermet: null },
-    notes: 'STARTING VALUES - verify on your setup. Tough, abrasive, high tool wear. '
-      + 'Never let the tool rub, use a sharp positive rake insert and steady feed. '
-      + 'Expect to back off if the edge breaks down.',
+    id: 'bronze-660', name: 'Bronze SAE 660 / UNS C95800 (soft bearing bronze)', group: 'Bronze', kc: 1900,
+    verified: false, hardness: 'soft',
+    tools: { carbide: S(60, 0.0022), coated: S(75, 0.0024), hss: S(20, 0.0008), cermet: null },
+    notes: 'SHOP STANDARD: treated as SOFT. STARTING VALUES - verify on your setup. '
+      + 'Soft for a bearing bronze, so it will take more feed than SAE 955 before the insert breaks. '
+      + 'Keep a sharp positive rake edge and watch for the finish smearing instead of cutting.',
   },
   {
     id: 'bronze-955', name: 'Bronze SAE 955 / UNS C93700 (hard bearing bronze)', group: 'Bronze', kc: 1900,
-    verified: false,
-    tools: { carbide: S(60, 0.0018), coated: S(75, 0.0020), hss: S(20, 0.0008), cermet: null },
-    notes: 'STARTING VALUES - verify on your setup. Same family as SAE 660, leaded. '
-      + 'Tough and abrasive, keep a sharp edge and do not dwell.',
+    verified: false, hardness: 'hard',
+    tools: { carbide: S(55, 0.0014), coated: S(70, 0.0016), hss: S(20, 0.0006), cermet: null },
+    notes: 'SHOP STANDARD: treated as HARD. STARTING VALUES - verify on your setup. '
+      + 'Same bearing bronze family as SAE 660 but leaded, and this shop runs it much lighter. '
+      + 'Back the feed off, keep a sharp edge and do not dwell or the edge breaks down.',
   },
   {
     id: 'bronze-fm', name: 'Bronze free machining C93200 (phosphor)', group: 'Bronze', kc: 1100,
@@ -168,10 +180,49 @@ const SEED = [
 ];
 
 const KEY = 'materials';
+const VERSION_KEY = 'materialsVersion';
+
+// Bump when a shipped seed value changes, so people who already loaded the app
+// pick the new data up instead of being stuck on whatever they cached first.
+const SEED_VERSION = 2;
+
+// The bronze entries as they shipped in version 1, kept only so the migration
+// can tell "nobody touched this" from "the shop edited this and means it".
+const V1_BRONZE = {
+  'bronze-660': { tools: { carbide: S(60, 0.0018), coated: S(75, 0.0020), hss: S(20, 0.0008), cermet: null } },
+  'bronze-955': { tools: { carbide: S(60, 0.0018), coated: S(75, 0.0020), hss: S(20, 0.0008), cermet: null } },
+};
+
+const sameTools = (a, b) => TOOL_TYPES.every((t) => {
+  const x = a && a[t.id];
+  const y = b && b[t.id];
+  if (!x && !y) return true;
+  return !!x && !!y && Math.abs(x.sfm - y.sfm) < 1e-9 && Math.abs(x.ipt - y.ipt) < 1e-9;
+});
+
+const migrate = (list) => {
+  const fresh = seedList();
+  let changed = false;
+  const out = list.map((m) => {
+    const old = V1_BRONZE[m.id];
+    const next = fresh.find((f) => f.id === m.id);
+    if (!old || !next || !sameTools(m.tools, old.tools)) return m;
+    // Untouched by the user, so the shop-standard revision is safe to apply.
+    const merged = { ...m, tools: next.tools, hardness: next.hardness, notes: next.notes };
+    if (m.name.includes('(hard bearing bronze)') && next.hardness === 'soft') {
+      merged.name = m.name.replace('(hard bearing bronze)', '(soft bearing bronze)');
+    }
+    changed = true;
+    return merged;
+  });
+  return changed ? out : list;
+};
 
 const clone = (m) => JSON.parse(JSON.stringify(m));
 
-const seedList = () => clone(SEED);
+// Runs the shipped seed through the same schema as anything the user types, so
+// a fresh install stores the same shape an import or an edit produces.
+const seedList = () => SEED.map((m) => sanitise(m));
 
 const sanitise = (m) => {
   const tools = {};
@@ -187,6 +238,7 @@ const sanitise = (m) => {
     group: String(m.group || 'Other'),
     kc: Number.isFinite(m.kc) ? m.kc : 1500,
     verified: m.verified !== false,
+    hardness: HARDNESS_IDS.includes(m.hardness) ? m.hardness : 'medium',
     notes: String(m.notes || ''),
     tools,
   };
@@ -194,9 +246,19 @@ const sanitise = (m) => {
 
 export const listMaterials = () => {
   const stored = store.load(KEY, null);
-  if (Array.isArray(stored) && stored.length) return stored;
+  if (Array.isArray(stored) && stored.length) {
+    const version = store.load(VERSION_KEY, 0);
+    if (version < SEED_VERSION) {
+      const upgraded = migrate(stored);
+      if (upgraded !== stored) store.saveNow(KEY, upgraded);
+      store.saveNow(VERSION_KEY, SEED_VERSION);
+      return upgraded;
+    }
+    return stored;
+  }
   const fresh = seedList();
   store.saveNow(KEY, fresh);
+  store.saveNow(VERSION_KEY, SEED_VERSION);
   return fresh;
 };
 
@@ -229,6 +291,7 @@ export const duplicateMaterial = (id) => {
 export const resetMaterials = () => {
   const fresh = seedList();
   store.saveNow(KEY, fresh);
+  store.saveNow(VERSION_KEY, SEED_VERSION);
   return fresh;
 };
 
@@ -236,7 +299,7 @@ export const searchMaterials = (query) => {
   const q = String(query || '').trim().toLowerCase();
   const list = listMaterials();
   if (!q) return list;
-  return list.filter((m) => m.name.toLowerCase().includes(q) || m.group.toLowerCase().includes(q));
+  return list.filter((m) => m.name.toLowerCase().includes(q) || m.group.toLowerCase().includes(q) || m.hardness === q);
 };
 
 export const materialsByGroup = (list = listMaterials()) => {
