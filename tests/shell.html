@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>shell smoke</title>
+<link rel="stylesheet" href="../css/app.css">
+</head>
+<body>
+<pre id="out">running...</pre>
+<iframe id="app" src="../index.html" style="width:430px;height:932px;border:0"></iframe>
+<script type="module">
+const out = document.getElementById('out');
+const log = [];
+const errors = [];
+const paint = () => { out.textContent = log.join('\n'); };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const head = (s) => { log.push(''); log.push(`--- ${s} ---`); paint(); };
+
+window.onerror = (m, f, l) => { log.push(`UNCAUGHT: ${m} @ ${f}:${l}`); paint(); };
+
+try {
+  const frame = document.getElementById('app');
+
+  // A new iframe starts on about:blank, and about:blank is already "complete",
+  // so waiting for load or checking readyState is both unreliable. Poll for a
+  // node that only the real app shell has.
+  let waited = 0;
+  let appReady = false;
+  while (waited < 10000) {
+    const doc = frame.contentDocument;
+    if (doc && doc.getElementById('nav-list') && doc.querySelector('#nav-list .nav-item')) { appReady = true; break; }
+    await sleep(150);
+    waited += 150;
+  }
+  if (!appReady) throw new Error('the app never rendered inside the iframe');
+
+  const w = frame.contentWindow;
+  const d = frame.contentDocument;
+  w.addEventListener('error', (e) => errors.push(`${e.message} @ ${e.filename}:${e.lineno}`));
+  w.addEventListener('unhandledrejection', (e) => errors.push(`rejection: ${(e.reason && e.reason.message) || e.reason}`));
+  const origErr = w.console.error;
+  w.console.error = (...a) => { errors.push(`console.error: ${a.join(' ')}`); origErr.apply(w.console, a); };
+
+  const q = (sel) => d.querySelector(sel);
+  const qa = (sel) => [...d.querySelectorAll(sel)];
+  const txt = (n) => (n ? n.textContent.replace(/\s+/g, ' ').trim() : '(missing)');
+  const readPrefs = () => JSON.parse(w.localStorage.getItem('mechcalc:prefs') || '{}');
+
+  log.push(`app ready after ${waited}ms`);
+  log.push(`title: ${d.title}`);
+  log.push(`nav items: ${qa('#nav-list .nav-item').length}`);
+  log.push(`active nav: ${txt(q('#nav-list .nav-item.is-active'))}`);
+  log.push(`view title: ${txt(q('#view-title'))}`);
+  log.push(`results rows: ${qa('.res-row').length}`);
+  paint();
+
+  head('visit every calculator');
+  {
+    const ids = qa('#nav-list .nav-item').map((n) => n.dataset.calc);
+    for (const id of ids) {
+      const btn = qa('#nav-list .nav-item').find((n) => n.dataset.calc === id);
+      const label = txt(btn).slice(0, 24);
+      try {
+        btn.click();
+        const shown = q('.calc-slot:not([hidden]) .calc')?.dataset.calc;
+        const rows = qa('.calc-slot:not([hidden]) .res-row').length;
+        const res = txt(q('.calc-slot:not([hidden]) .calc-results'));
+        const warn = /Could not calculate/.test(res);
+        const switched = shown === id;
+        log.push(`${warn || !switched ? 'WARN' : 'OK  '} ${label.padEnd(26)} -> ${String(shown).padEnd(11)} rows=${rows} title="${txt(q('#view-title'))}"${warn ? ' :: ' + res.slice(0, 70) : ''}${!switched ? ' :: DID NOT SWITCH' : ''}`);
+      } catch (err) {
+        log.push(`FAIL ${label} :: ${err.message}`);
+      }
+    }
+    paint();
+  }
+
+  head('search filters the nav');
+  try {
+    const s = q('#search');
+    s.value = 'tap';
+    s.dispatchEvent(new w.Event('input', { bubbles: true }));
+    log.push(`"tap" -> ${qa('#nav-list .nav-item').length} item(s): ${qa('#nav-list .nav-item').map((n) => n.dataset.calc).join(', ')}`);
+    s.value = 'zzzznotathing';
+    s.dispatchEvent(new w.Event('input', { bubbles: true }));
+    log.push(`junk -> ${qa('#nav-list .nav-item').length} item(s); empty msg: ${txt(q('#nav-list .nav-empty'))}`);
+    s.value = '';
+    s.dispatchEvent(new w.Event('input', { bubbles: true }));
+    log.push(`cleared -> ${qa('#nav-list .nav-item').length} item(s)`);
+  } catch (err) { log.push(`FAIL search :: ${err.message}`); }
+  paint();
+
+  head('unit toggle');
+  try {
+    for (let i = 0; i < 2; i++) {
+      q('#unit-main').click();
+      log.push(`click ${i + 1}: label="${txt(q('#unit-main'))}" html[units]=${d.documentElement.dataset.units} first value="${txt(q('.uv .v'))}"`);
+    }
+  } catch (err) { log.push(`FAIL unit toggle :: ${err.message}`); }
+  paint();
+
+  head('settings sheet');
+  try {
+    q('#settings-open').click();
+    log.push(`open (hidden=${q('#settings').hidden}): segs=${qa('#settings-body .seg').length} selects=${qa('#settings-body select').length}`);
+
+    const fracSel = q('#settings-body select[data-f="fractionDen"]');
+    fracSel.value = '16';
+    fracSel.dispatchEvent(new w.Event('change', { bubbles: true }));
+
+    qa('#settings-body .seg[data-f="theme"]').find((b) => b.dataset.value === 'light').click();
+    log.push(`theme -> html[theme]=${d.documentElement.dataset.theme}`);
+
+    qa('#settings-body .seg[data-f="machine"]').find((b) => b.dataset.value === 'okuma').click();
+    log.push(`machine -> button="${txt(q('#machine-btn'))}"`);
+
+    // Writes are debounced, so read storage only after giving the store a moment.
+    await sleep(500);
+    log.push(`persisted: ${JSON.stringify(readPrefs())}`);
+
+    qa('#settings-body .seg[data-f="theme"]').find((b) => b.dataset.value === 'dark').click();
+    fracSel.value = '64';
+    fracSel.dispatchEvent(new w.Event('change', { bubbles: true }));
+
+    q('#settings-close').click();
+    log.push(`closed (hidden=${q('#settings').hidden})`);
+  } catch (err) { log.push(`FAIL settings :: ${err.message}`); }
+  paint();
+
+  head('materials manager');
+  try {
+    q('#materials-open').click();
+    await sleep(400);
+    const rows = qa('.mat-item');
+    log.push(`rows=${rows.length}; first="${txt(rows[0]).slice(0, 60)}"`);
+
+    const box = q('#mat-search');
+    if (box) {
+      box.focus();
+      const focusWorks = d.activeElement === box;
+      box.value = 'bronze';
+      box.dispatchEvent(new w.Event('input', { bubbles: true }));
+      const filtered = qa('.mat-item');
+      log.push(`search "bronze" -> ${filtered.length} row(s): ${filtered.map((r) => txt(r).slice(0, 28)).join(' | ')}`);
+      log.push(`focus: mechanism works=${focusWorks}; kept on input after re-render=${d.activeElement === box}`);
+      box.value = '';
+      box.dispatchEvent(new w.Event('input', { bubbles: true }));
+    } else {
+      log.push('WARN no #mat-search input');
+    }
+
+    const esc = qa('button').find((b) => /close|done|cancel/i.test(b.textContent) && b.offsetParent !== null);
+    if (esc) esc.click();
+    log.push(`closed: no visible overlay=${!qa('.overlay').some((m) => m.offsetParent !== null)}`);
+  } catch (err) { log.push(`FAIL materials :: ${err.message}`); }
+  paint();
+
+  head('escape key closes settings');
+  try {
+    q('#settings-open').click();
+    d.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    log.push(`hidden after Escape: ${q('#settings').hidden}`);
+  } catch (err) { log.push(`FAIL escape :: ${err.message}`); }
+  paint();
+
+  head('offline cache');
+  try {
+    // Service-worker APIs do not settle under a virtual-time headless run, so
+    // race every one of them against a timer and report what we could not see.
+    const limit = (p, ms) => Promise.race([
+      p,
+      sleep(ms).then(() => 'timed out after ' + ms + 'ms'),
+    ]);
+
+    const regs = await limit(navigator.serviceWorker.getRegistrations(), 3000);
+    log.push(`service worker registrations: ${typeof regs === 'string' ? regs : regs.length}`);
+
+    const names = await limit(caches.keys(), 3000);
+    if (typeof names === 'string') {
+      log.push(`caches: ${names}`);
+    } else {
+      log.push(`caches: ${names.join(', ') || '(none)'}`);
+      if (names.length) {
+        const c = await limit(caches.open(names[names.length - 1]), 3000);
+        const keys = await limit(c.keys(), 3000);
+        if (typeof keys === 'string') {
+          log.push(`entries: ${keys}`);
+        } else {
+          const urls = keys.map((k) => new URL(k.url).pathname.replace(/^\//, ''));
+          log.push(`cached entries: ${keys.length}`);
+          const need = ['index.html', 'css/app.css', 'js/main.js', 'js/tables.js',
+            'js/calc/rpm.js', 'js/calc/fractions.js', 'manifest.webmanifest', 'icons/icon-192.png'];
+          const missing = need.filter((n) => !urls.includes(n));
+          log.push(`missing from cache: ${missing.length ? missing.join(', ') : 'none'}`);
+        }
+      } else {
+        log.push('WARN no cache was created');
+      }
+    }
+  } catch (err) { log.push(`FAIL cache audit :: ${err.message}`); }
+  paint();
+
+  head('errors captured');
+  log.push(errors.length ? errors.join('\n') : 'none');
+} catch (err) {
+  log.push('');
+  log.push(`ABORTED: ${err && err.message ? err.message : err}`);
+  log.push(err && err.stack ? err.stack : '');
+}
+
+paint();
+document.title = 'shell smoke done';
+</script>
+</body>
+</html>

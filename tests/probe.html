@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>probe</title></head>
+<body>
+<pre id="out">running...</pre>
+<script type="module">
+const out = document.getElementById('out');
+const log = [];
+const paint = () => { out.textContent = log.join('\n'); };
+window.addEventListener('error', (e) => {
+  log.push(`WINDOW ERROR: ${e.message} @ ${e.filename}:${e.lineno}:${e.colno}`);
+  paint();
+});
+window.addEventListener('unhandledrejection', (e) => {
+  const r = e.reason;
+  log.push(`REJECTION: ${(r && r.stack) || r}`);
+  paint();
+});
+
+const mods = [
+  '../js/units.js',
+  '../js/store.js',
+  '../js/tables.js',
+  '../js/materials.js',
+  '../js/gcode.js',
+  '../js/ui.js',
+  '../js/calc/formulas.js',
+  '../js/calc/matfield.js',
+  '../js/calc/rpm.js',
+  '../js/calc/tablefeed.js',
+  '../js/calc/feedrev.js',
+  '../js/calc/boltcircle.js',
+  '../js/calc/drill.js',
+  '../js/calc/threads.js',
+  '../js/calc/mrr.js',
+  '../js/calc/fractions.js',
+  '../js/selftest.js',
+  '../js/registry.js',
+  '../js/materialsui.js',
+  '../js/main.js',
+];
+
+for (const m of mods) {
+  try {
+    await import(m);
+    log.push(`OK    ${m}`);
+  } catch (err) {
+    log.push(`FAIL  ${m}\n      ${(err && err.message) || err}\n${(err && err.stack) || ''}`);
+  }
+}
+paint();
+document.title = 'probe done';
+</script>
+</body>
+</html>

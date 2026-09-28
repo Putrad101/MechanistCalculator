@@ -1,0 +1,20 @@
+{
+  "name": "Mechanist Calculator",
+  "short_name": "Mech Calc",
+  "description": "Machinist calculator for spindle speed, feeds, bolt circles, drilling, tapping, MRR and cycle time. Imperial and metric shown together.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "id": "mechanist-calculator",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0e1116",
+  "theme_color": "#0e1116",
+  "categories": ["productivity", "utilities", "business"],
+  "lang": "en",
+  "dir": "ltr",
+  "icons": [
+    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

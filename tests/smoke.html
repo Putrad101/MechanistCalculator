@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>smoke</title><link rel="stylesheet" href="../css/app.css"></head>
+<body>
+<pre id="out">running...</pre>
+<script type="module">
+const out = document.getElementById('out');
+const log = [];
+const paint = () => { out.textContent = log.join('\n'); };
+window.addEventListener('error', (e) => { log.push(`WINDOW ERROR: ${e.message} @ ${e.filename}:${e.lineno}`); paint(); });
+window.addEventListener('unhandledrejection', (e) => { log.push(`REJECTION: ${(e.reason && e.reason.stack) || e.reason}`); paint(); });
+
+const { CALCULATORS } = await import('../js/registry.js');
+
+for (const calc of CALCULATORS) {
+  const hostEl = document.createElement('div');
+  document.body.appendChild(hostEl);
+  try {
+    calc.mount(hostEl);
+    const root = hostEl.querySelector('.calc');
+    const res = root.querySelector('.calc-results');
+    const rows = res.querySelectorAll('.res-row').length;
+    const text = res.textContent.replace(/\s+/g, ' ').trim();
+    const hasErr = /Could not calculate/.test(text);
+    log.push(`${hasErr ? 'WARN' : 'OK  '} ${calc.id.padEnd(11)} results=${String(rows).padStart(2)}  ${text.slice(0, 110)}`);
+  } catch (err) {
+    log.push(`FAIL ${calc.id} :: ${(err && err.message) || err}\n${(err && err.stack) || ''}`);
+  }
+}
+
+log.push('');
+log.push('--- clicking every segmented control in every calculator ---');
+const all = document.querySelectorAll('.calc');
+for (const root of all) {
+  const id = root.dataset.calc;
+  for (const seg of root.querySelectorAll('.seg')) {
+    try {
+      seg.click();
+    } catch (err) {
+      log.push(`FAIL ${id} clicking "${seg.textContent.trim()}" :: ${(err && err.message) || err}`);
+    }
+  }
+  const rows = root.querySelectorAll('.res-row').length;
+  const txt = root.querySelector('.calc-results').textContent.replace(/\s+/g, ' ').trim();
+  const err2 = /Could not calculate/.test(txt);
+  log.push(`${err2 ? 'WARN' : 'OK  '} ${id.padEnd(11)} after segment switches, results=${rows} ${err2 ? txt.slice(0, 90) : ''}`);
+}
+
+log.push('');
+log.push('--- plus/minus steppers ---');
+const stepped = [];
+for (const root of all) {
+  const btn = root.querySelector('.step[data-step="1"]');
+  if (!btn) continue;
+  const input = document.getElementById(btn.dataset.for);
+  if (!input) { stepped.push(`${root.dataset.calc}: NO INPUT for stepper`); continue; }
+  const before = input.value;
+  try {
+    btn.click();
+    btn.click();
+    stepped.push(`${root.dataset.calc}: ${before} -> ${input.value}`);
+  } catch (err) {
+    stepped.push(`${root.dataset.calc}: THREW ${(err && err.message) || err}`);
+  }
+}
+log.push(...stepped);
+
+log.push('');
+log.push('--- fraction tap buttons ---');
+const fracBtns = document.querySelectorAll('.frac');
+log.push(`found ${fracBtns.length} fraction buttons`);
+
+paint();
+document.title = 'smoke done';
+</script>
+</body>
+</html>

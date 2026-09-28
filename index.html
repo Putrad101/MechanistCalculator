@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-units="in">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1116">
+<meta name="description" content="Machinist calculator for spindle speed, feeds, bolt circles, drilling, tapping, MRR and cycle time. Works in both imperial and metric at the same time.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Mech Calc">
+<title>Mechanist Calculator</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icons/icon-192.png" sizes="192x192">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+<link rel="stylesheet" href="./css/app.css">
+</head>
+<body>
+<a class="skip" href="#calc-host">Skip to the calculator</a>
+
+<div class="shell">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">⚙</span>
+      <span class="brand-text">
+        <strong>Mechanist Calculator</strong>
+        <span class="net-state" id="net-state">Online</span>
+      </span>
+    </div>
+    <div class="topbar-actions">
+      <button type="button" class="btn btn-toggle" id="unit-main" aria-pressed="true">Inch first</button>
+      <button type="button" class="btn btn-ghost" id="materials-open" title="Materials">Materials</button>
+      <button type="button" class="btn btn-ghost" id="settings-open" title="Settings" aria-label="Settings">⚙</button>
+    </div>
+  </header>
+
+  <div class="toolbar">
+    <div class="search-wrap">
+      <input type="search" id="search" placeholder="Search calculators, or press /" autocomplete="off" aria-label="Search calculators">
+    </div>
+    <button type="button" class="btn btn-ghost" id="machine-btn" title="Default machine">HAAS</button>
+  </div>
+
+  <nav class="nav" aria-label="Calculators">
+    <ul id="nav-list"></ul>
+  </nav>
+
+  <main class="view">
+    <h2 class="view-title" id="view-title"></h2>
+    <p class="view-blurb" id="view-blurb"></p>
+    <div id="calc-host"></div>
+  </main>
+</div>
+
+<div class="overlay" id="settings" hidden>
+  <div class="overlay-scrim" id="settings-scrim"></div>
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="Settings">
+    <header class="sheet-head">
+      <h2>Settings</h2>
+      <button type="button" class="btn btn-ghost" id="settings-close">Close</button>
+    </header>
+    <div class="sheet-body" id="settings-body"></div>
+  </div>
+</div>
+
+<noscript>
+  <p style="padding:2rem;color:#fff">This calculator needs JavaScript. There is no server side, everything runs in your browser.</p>
+</noscript>
+
+<script type="module" src="./js/main.js"></script>
+</body>
+</html>
