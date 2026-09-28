@@ -34,7 +34,7 @@ export const DIM_TABLES = {
 export const DIMS = {
   length:   { src: 'mm',  imp: 'in',  si: 'mm',  impLabel: 'in',       siLabel: 'mm',       impDp: 4, siDp: 3, fraction: true },
   perMin:   { src: 'mm',  imp: 'in',  si: 'mm',  impLabel: 'IPM',      siLabel: 'mm/min',   impDp: 4, siDp: 2 },
-  perRev:   { src: 'mm',  imp: 'in',  si: 'mm',  impLabel: 'in/rev',   siLabel: 'mm/rev',   impDp: 5, siDp: 4 },
+  perRev:   { src: 'mm',  imp: 'in',  si: 'mm',  impLabel: 'in/rev',   siLabel: 'mm/rev',   impDp: 4, siDp: 4 },
   perTooth: { src: 'mm',  imp: 'in',  si: 'mm',  impLabel: 'in/tooth', siLabel: 'mm/tooth', impDp: 5, siDp: 4 },
   speed:    { src: 'mm',  imp: 'ft',  si: 'm',   impLabel: 'SFM',      siLabel: 'm/min',    impDp: 1, siDp: 1 },
   rpm:      { src: null,  imp: null,  si: null,  impLabel: 'rpm',      siLabel: 'rpm',      impDp: 0, siDp: 0 },

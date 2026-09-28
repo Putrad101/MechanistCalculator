@@ -47,6 +47,10 @@ export const run = () => {
   test('fmt does not group a small metric feed', units.fmt(0.0711, 4), '0.0711');
   test('fmt still groups the integer part', units.fmt(12345.678, 3), '12,345.678');
   test('fmt leaves a two decimal result alone', units.fmt(29.88, 2), '29.88');
+
+  // IPR is read off a feed dial, so it is shown to four decimals, not five.
+  test('feed per revolution shows four decimals', units.fmt(units.fromCanonical(0.0711, 'in', 'perRev'), 4), '0.0028');
+  test('feed per revolution shows four decimals in mm', units.fmt(0.0711, 4), '0.0711');
   near('FPR and feed agree: IPM = FPR x rpm', F.feedFromToothLoad(800, 0.05 * 25.4, 2), F.feedPerRevolution(0.05 * 25.4, 2) * 800, 1e-9);
 
   near('118 degree point on a 10 mm drill', F.drillPointLength(10, 118), 3.0043, 0.001);
