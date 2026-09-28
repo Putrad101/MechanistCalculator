@@ -1,0 +1,60 @@
+name: Deploy to GitHub Pages
+
+# This repo is a static site with no build step. The workflow stages the files
+# that make up the app and publishes them. It also enables the Pages site on the
+# first run via the API, so there is nothing to click in Settings -> Pages.
+
+on:
+  push:
+    branches: [main]
+  # Allows a manual re-deploy from the Actions tab.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never run two deploys at once, and never cancel one in progress: a cancelled
+# deploy can leave the live site half-updated.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@v5
+        with:
+          # Creates the Pages site if it does not exist yet, and turns on
+          # GitHub Actions as the publishing source.
+          enablement: true
+
+      - name: Stage the site
+        run: |
+          set -eu
+          mkdir -p _site
+          cp -r index.html css js icons tests _site/
+          cp manifest.webmanifest sw.js README.md _site/
+          # Stops Jekyll from silently dropping anything it wants to ignore.
+          touch _site/.nojekyll
+          echo "staged $(find _site -type f | wc -l) files"
+
+      - name: Upload the Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
