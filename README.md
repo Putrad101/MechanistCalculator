@@ -23,6 +23,27 @@ kind. Plain HTML, CSS and JavaScript modules.
 Every result shows both units at once. The unit toggle in the header only decides
 which one is bolded and which unit the input fields start in.
 
+### Lathe or mill
+
+The RPM page opens with a **Lathe / Mill** switch, because the two answer
+different questions and the difference is not cosmetic.
+
+- **Lathe** (the default) treats the main diameter as the **part diameter**. In
+  turning the cutting speed belongs to the workpiece, so you size the spindle to
+  the job, not to the insert. The duplicate workpiece field and the
+  "speed at the workpiece" row are hidden, because on a lathe they would only
+  repeat the cutting speed.
+- **Mill** treats the main diameter as the **tool diameter**, since in milling the
+  cutting speed is the speed of the cutting edge. A separate workpiece field
+  appears, because the cutter and the job are different diameters and knowing the
+  workpiece surface speed is genuinely useful.
+
+With no material preset loaded, a lathe will not invent a feed for you. The
+cutter-diameter rule it uses on a mill is about tool size, and on a lathe the
+feed comes from the insert and the workpiece, so there is no diameter to size it
+from. Load a material and the feed appears. On a mill the diameter rule stays as
+a fallback.
+
 ### Feed per revolution on the RPM calculator
 
 The RPM calculator also reports a recommended feed per revolution, because that is
@@ -43,10 +64,11 @@ Two things worth being clear about, since both are easy to get backwards:
   tool. Once the speed is known, IPM = FPR x RPM.
 
 The part diameter field is separate from the tool diameter and is only used to
-report the surface speed at the workpiece, since on a lathe SFM normally means
-the part, not the tool. It starts blank, because the part diameter is the most
-job-specific number on the page and a guess would just print a surface speed
-that looks like data but means nothing.
+report the surface speed at the workpiece, since on a mill SFM normally means
+the cutter. It starts blank, because the part diameter is the most job-specific
+number on the page and a guess would just print a surface speed that looks like
+data but means nothing. On a lathe the field is not shown at all, since the
+part diameter is already the working diameter.
 
 The page opens on a coherent starting point rather than a placeholder: a 1/2 in
 carbide at 250 SFM, which is about 1,900 rpm and lands near 0.008 in/rev with
@@ -192,6 +214,7 @@ The browser side has three suites. Start the server first, then open:
 | `tests/smoke.html` | Mounts all eight calculators, computes, and drives every segmented control and stepper. |
 | `tests/shell.html` | Drives the real app in an iframe: navigation, search, unit toggle, settings, and the materials manager. |
 | `tests/migrate.html` | Proves the material seed migration upgrades untouched rows and never overwrites a hand-edited one. |
+| `tests/rpm.html` | Drives the RPM page in both lathe and mill mode: the diameter label, the workpiece field, and when a feed may be shown. |
 
 None of these need a test framework. They are ES modules and plain Python on
 purpose, so they run anywhere the app does.

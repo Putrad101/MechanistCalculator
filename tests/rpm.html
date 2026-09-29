@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>rpm lathe/mill - checks</title>
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 1rem; }
+  pre { white-space: pre-wrap; }
+  .pass { color: #0a6; } .fail { color: #c00; font-weight: 600; }
+  iframe { width: 430px; height: 1100px; border: 1px solid #ccc; }
+</style>
+</head>
+<body>
+<h1>RPM page: lathe and mill modes</h1>
+<pre id="out">running...</pre>
+<iframe id="app" src="../index.html"></iframe>
+<script type="module">
+// The RPM page changes what the main diameter means, which diameter label is
+// shown, whether a separate workpiece field appears, and whether a feed can be
+// produced at all with no material loaded. Each of those is checked here.
+const results = [];
+const check = (name, got, want) => {
+  const ok = String(got) === String(want);
+  results.push({ name, got, want, ok });
+};
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const frame = document.getElementById('app');
+let waited = 0;
+while (waited < 10000) {
+  const doc = frame.contentDocument;
+  if (doc && doc.querySelector('#nav-list .nav-item')) break;
+  await sleep(150);
+  waited += 150;
+}
+const d = frame.contentDocument;
+const W = frame.contentWindow;
+const errs = [];
+W.addEventListener('error', (e) => errs.push(`${e.message} @ ${e.filename}:${e.lineno}`));
+
+d.querySelector('.nav-item[data-calc="rpm"]').click();
+await sleep(450);
+const root = () => d.querySelector('.calc-slot:not([hidden])');
+const rowLabels = () => [...root().querySelectorAll('.res-row')]
+  .map((r) => (r.querySelector('.res-label') || r).textContent.replace(/\s+/g, ' ').trim());
+const rowValue = (needle) => {
+  const r = [...root().querySelectorAll('.res-row')].find((x) => x.textContent.includes(needle));
+  return r ? r.textContent.replace(/\s+/g, ' ').trim() : null;
+};
+const hasField = (name) => Boolean(root().querySelector(`[data-f="${name}"]`));
+const fieldLabel = (name) => {
+  // The input sits inside <label class="field">, with the text in a
+  // .field-label span, so there is no nested label element to query.
+  const el = root().querySelector(`[data-f="${name}"]`);
+  const wrap = el && el.closest('.field');
+  const lbl = wrap && wrap.querySelector('.field-label');
+  return lbl ? lbl.textContent.trim() : null;
+};
+const setMode = async (m) => {
+  root().querySelector(`.seg[data-value="${m}"]`).click();
+  await sleep(450);
+};
+const setField = async (name, v) => {
+  const el = root().querySelector(`[data-f="${name}"]`);
+  el.value = v;
+  el.dispatchEvent(new W.Event('input', { bubbles: true }));
+  await sleep(320);
+};
+const setSelect = async (name, v) => {
+  const el = root().querySelector(`select[data-f="${name}"]`);
+  el.value = v;
+  el.dispatchEvent(new W.Event('change', { bubbles: true }));
+  await sleep(380);
+};
+
+// The page must not depend on saved state from a previous visit, so clear it.
+try { W.localStorage.removeItem('mechcalc:calcState:rpm'); } catch { /* ignore */ }
+
+// --- default is lathe, and the working diameter is called the part diameter ---
+check('default mode is lathe', root().querySelector('.seg[data-value="lathe"]').classList.contains('is-active'), true);
+check('lathe labels the working diameter Part diameter', fieldLabel('dia'), 'Part diameter');
+check('lathe shows no separate workpiece field', hasField('partDia'), false);
+check('lathe does not report a separate workpiece speed', rowLabels().some((l) => /Speed at the/.test(l)), false);
+
+// A lathe with no material has no defensible chip load, so no feed is invented.
+check('lathe with no material reports no feed', rowLabels().some((l) => /Feed per revolution/.test(l)), false);
+check('lathe with no material still reports the speed', /Spindle speed/.test(rowLabels().join(' ')), true);
+
+// --- mill mode flips the label and brings the workpiece field back ---
+await setMode('mill');
+check('mill labels the working diameter Tool diameter', fieldLabel('dia'), 'Tool diameter');
+check('mill shows the workpiece field', hasField('partDia'), true);
+check('mill without a workpiece omits the workpiece speed', rowLabels().some((l) => /Speed at the/.test(l)), false);
+
+// A mill can still fall back on a cutter-diameter chip load rule.
+check('mill with no material still estimates a feed', /Feed per revolution/.test(rowLabels().join(' ')), true);
+check('the fallback feed is the half inch four flute figure', /0\.0079in\/rev/.test(rowValue('Feed per revolution') || ''), true);
+
+await setField('partDia', '4');
+check('mill with a workpiece reports its speed', /Speed at the workpiece/.test(rowLabels().join(' ')), true);
+check('4 in workpiece at 1910 rpm is 2000 SFM', /2,000\.0SFM/.test(rowValue('Speed at the workpiece') || ''), true);
+
+// --- a loaded material is the only chip load a lathe should trust ---
+await setMode('lathe');
+check('returning to lathe hides the workpiece field', hasField('partDia'), false);
+check('returning to lathe restores the part diameter label', fieldLabel('dia'), 'Part diameter');
+
+await setSelect('matId', 'bronze-660');
+check('lathe with a material does report a feed', /Feed per revolution/.test(rowLabels().join(' ')), true);
+check('the material chip load drives the feed', /0\.0088in\/rev/.test(rowValue('Feed per revolution') || ''), true);
+check('the material also drove the cutting speed', /60\.0SFM/.test(rowValue('Cutting speed') || ''), true);
+
+await setSelect('matId', 'custom');
+check('dropping back to custom drops the invented feed again', rowLabels().some((l) => /Feed per revolution/.test(l)), false);
+
+// The lathe note must not tell the user to size a feed off a diameter.
+await setSelect('matId', 'bronze-660');
+check('the lathe page never suggests sizing feed off the part diameter', /chip load is scaled from the tool diameter/.test(root().textContent), false);
+
+const failed = results.filter((r) => !r.ok);
+const lines = results.map((r) => `${r.ok ? 'pass' : 'FAIL'}  ${r.name}${r.ok ? '' : `\n        got  ${r.got}\n        want ${r.want}`}`);
+lines.push('');
+lines.push(failed.length ? `${failed.length} of ${results.length} checks failed` : `all ${results.length} checks passed`);
+lines.push(`errors: ${errs.length ? errs.join(' | ') : 'none'}`);
+const out = document.getElementById('out');
+out.textContent = lines.join('\n');
+out.className = failed.length ? 'fail' : 'pass';
+document.title = failed.length ? 'FAIL rpm lathe/mill' : 'PASS rpm lathe/mill';
+</script>
+</body>
+</html>
