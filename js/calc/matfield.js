@@ -13,6 +13,16 @@ export const toolTypeOptions = () => mat.TOOL_TYPES.map((t) => ({ value: t.id, l
 
 export const presetFor = (matId, toolType) => (matId && matId !== CUSTOM ? mat.getToolFor(matId, toolType) : null);
 
+// Turning feed band in in/rev, or null. Null is meaningful: it means there is no
+// defensible band for that material and tooling, so the page asks rather than
+// guesses.
+export const turnFeedPreset = (matId, toolType) => (
+  matId && matId !== CUSTOM ? mat.turnFeedFor(matId, toolType) : null
+);
+
+// Midpoint of a band, as a starting feed per rev in in/rev.
+export const turnFeedStart = (band) => (band && band.length === 2 ? (band[0] + band[1]) / 2 : NaN);
+
 export const currentMaterial = (matId) => (matId && matId !== CUSTOM ? mat.getMaterial(matId) : null);
 
 export const applyPreset = (root, state, targets) => {
@@ -25,6 +35,18 @@ export const applyPreset = (root, state, targets) => {
       : units.toCanonical(t.ipt, 'in', dim);
     setField(root, name, units.round(units.fromCanonical(canon, unit, dim), 6), unit, dim);
   }
+  return true;
+};
+
+// Seeds a feed per rev box from the material's turning band, at the midpoint of
+// the range. The band is only a starting point, so the page says so next to it
+// rather than presenting it as the answer.
+export const applyTurnFeed = (root, state) => {
+  const band = turnFeedPreset(state.matId, state.toolType);
+  if (!band) return false;
+  const start = turnFeedStart(band);
+  const shown = units.fromCanonical(units.toCanonical(start, 'in', 'perRev'), state.iprUnit, 'perRev');
+  setField(root, 'ipr', units.round(shown, 6), state.iprUnit, 'perRev');
   return true;
 };
 

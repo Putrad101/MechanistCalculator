@@ -25,6 +25,57 @@ const HARDNESS_IDS = HARDNESS.map((h) => h.id);
 
 const S = (sfm, ipt) => ({ sfm, ipt });
 
+// Turning feed per revolution, in/rev, as [min, max].
+//
+// These are MATERIAL level starting points, not insert recommendations. An insert
+// datasheet gives a feed for a stated workpiece group, depth of cut and
+// operation, and a real insert can sit well outside or well inside these bands.
+// They are here so a turner has a defensible number to start from rather than
+// the milling per-tooth IPT, which is a different quantity and does not belong
+// on a lathe at all.
+//
+// Ranges are the overlap of commonly published shop tables (Machinery's
+// Handbook derived charts and tooling manufacturer references), which typically
+// agree within about plus or minus 30 percent. Always treated as unverified
+// starting values, exactly like the shop standard bronzes.
+export const TURN_FEED_NOTE = 'Starting values from published shop tables, not from an insert datasheet. '
+  + 'A real insert can sit outside this band. Verify on your setup and use the figure on your insert box where you have one.';
+
+const TF = (carbide, hss) => ({ carbide, hss });
+
+const TURN_FEED = {
+  'al-6061': TF([0.0050, 0.0120], [0.0030, 0.0070]),
+  'al-7075': TF([0.0040, 0.0100], [0.0020, 0.0050]),
+  'al-cast': TF([0.0040, 0.0100], [0.0020, 0.0050]),
+  'steel-1018': TF([0.0030, 0.0070], [0.0015, 0.0040]),
+  'steel-1045': TF([0.0030, 0.0070], [0.0012, 0.0030]),
+  'steel-4140': TF([0.0030, 0.0050], [0.0010, 0.0020]),
+  'ss-304': TF([0.0010, 0.0040], [0.0008, 0.0020]),
+  'ss-316': TF([0.0010, 0.0030], [0.0006, 0.0015]),
+  'iron-grey': TF([0.0040, 0.0100], [0.0020, 0.0050]),
+  'iron-ductile': TF([0.0030, 0.0080], [0.0015, 0.0040]),
+  // Shop standards, kept lighter than the generic bearing bronze figures.
+  'bronze-660': TF([0.0015, 0.0030], [0.0006, 0.0012]),
+  'bronze-955': TF([0.0008, 0.0015], [0.0004, 0.0008]),
+  'bronze-fm': TF([0.0030, 0.0070], [0.0012, 0.0030]),
+  'bronze-tin': TF([0.0020, 0.0050], [0.0010, 0.0020]),
+  'brass-c360': TF([0.0030, 0.0080], [0.0015, 0.0040]),
+  'brass-360f': TF([0.0030, 0.0070], [0.0012, 0.0030]),
+  'copper-c110': TF([0.0020, 0.0050], [0.0010, 0.0020]),
+  'bronze-nickel': TF([0.0020, 0.0050], [0.0010, 0.0020]),
+  'ti-6al-4v': TF([0.0010, 0.0030], [0.0008, 0.0015]),
+  'inconel-718': TF([0.0010, 0.0030], [0.0006, 0.0012]),
+  'monel-400': TF([0.0015, 0.0030], [0.0006, 0.0015]),
+  'hardox-450': TF([0.0020, 0.0050], [0.0008, 0.0015]),
+  'steel-d2': TF([0.0015, 0.0030], [0.0006, 0.0012]),
+  'plastic-acetal': TF([0.0030, 0.0080], [0.0020, 0.0050]),
+  'plastic-nylon': TF([0.0030, 0.0080], [0.0020, 0.0050]),
+  'plastic-acrylic': TF([0.0020, 0.0060], [0.0010, 0.0030]),
+  'plastic-uhmw': TF([0.0030, 0.0080], [0.0020, 0.0050]),
+  'mg-az91': TF([0.0050, 0.0120], [0.0030, 0.0060]),
+  'other-unknown': TF([0.0020, 0.0050], [0.0010, 0.0025]),
+};
+
 const SEED = [
   {
     id: 'al-6061', name: 'Aluminium 6061-T6', group: 'Aluminium', kc: 350,
@@ -184,7 +235,7 @@ const VERSION_KEY = 'materialsVersion';
 
 // Bump when a shipped seed value changes, so people who already loaded the app
 // pick the new data up instead of being stuck on whatever they cached first.
-const SEED_VERSION = 2;
+const SEED_VERSION = 3;
 
 // The bronze entries as they shipped in version 1, kept only so the migration
 // can tell "nobody touched this" from "the shop edited this and means it".
@@ -200,15 +251,41 @@ const sameTools = (a, b) => TOOL_TYPES.every((t) => {
   return !!x && !!y && Math.abs(x.sfm - y.sfm) < 1e-9 && Math.abs(x.ipt - y.ipt) < 1e-9;
 });
 
+// Accepts { carbide: [min, max], hss: [min, max] } in in/rev. Anything missing or
+// out of order comes back null rather than a half valid band. Every tooling type
+// in TOOL_TYPES is carried through, not just carbide and HSS, so a band the user
+// typed for a coated or cermet insert survives a save.
+const cleanTurnFeed = (tf) => {
+  if (!tf || typeof tf !== 'object') return null;
+  const band = (v) => (Array.isArray(v) && v.length === 2
+    && Number.isFinite(v[0]) && Number.isFinite(v[1]) && v[0] > 0 && v[1] >= v[0])
+    ? [v[0], v[1]] : null;
+  const out = {};
+  let any = false;
+  for (const t of TOOL_TYPES) {
+    out[t.id] = band(tf[t.id]);
+    if (out[t.id]) any = true;
+  }
+  return any ? out : null;
+};
+
 const migrate = (list) => {
   const fresh = seedList();
   let changed = false;
   const out = list.map((m) => {
-    const old = V1_BRONZE[m.id];
     const next = fresh.find((f) => f.id === m.id);
-    if (!old || !next || !sameTools(m.tools, old.tools)) return m;
+    let merged = m;
+    // Turning feed was added after the first release. Anything that arrived
+    // before it has none, so filling a missing band cannot overwrite a shop
+    // edit, and an existing one is always left alone.
+    if (next && next.turnFeed && !m.turnFeed) {
+      merged = { ...merged, turnFeed: clone(next.turnFeed) };
+      changed = true;
+    }
+    const old = V1_BRONZE[m.id];
+    if (!old || !next || !sameTools(m.tools, old.tools)) return merged;
     // Untouched by the user, so the shop-standard revision is safe to apply.
-    const merged = { ...m, tools: next.tools, hardness: next.hardness, notes: next.notes };
+    merged = { ...merged, tools: next.tools, hardness: next.hardness, notes: next.notes };
     if (m.name.includes('(hard bearing bronze)') && next.hardness === 'soft') {
       merged.name = m.name.replace('(hard bearing bronze)', '(soft bearing bronze)');
     }
@@ -221,8 +298,13 @@ const migrate = (list) => {
 const clone = (m) => JSON.parse(JSON.stringify(m));
 
 // Runs the shipped seed through the same schema as anything the user types, so
-// a fresh install stores the same shape an import or an edit produces.
-const seedList = () => SEED.map((m) => sanitise(m));
+// a fresh install stores the same shape an import or an edit produces. The
+// turning feed bands live in their own table and are attached here, so all of
+// that data can be read and corrected in one place.
+const seedList = () => SEED.map((m) => {
+  const s = sanitise(m);
+  return { ...s, turnFeed: clone(TURN_FEED[m.id] || null) };
+});
 
 const sanitise = (m) => {
   const tools = {};
@@ -241,6 +323,7 @@ const sanitise = (m) => {
     hardness: HARDNESS_IDS.includes(m.hardness) ? m.hardness : 'medium',
     notes: String(m.notes || ''),
     tools,
+    turnFeed: cleanTurnFeed(m.turnFeed),
   };
 };
 
@@ -265,6 +348,16 @@ export const listMaterials = () => {
 export const isSeeded = () => Array.isArray(store.load(KEY, null));
 
 export const getMaterial = (id) => listMaterials().find((m) => m.id === id) || null;
+
+// Turning feed band for a material and tooling type, in in/rev. Returns null
+// when the material has no band for that tooling, which is the honest answer:
+// the page then asks for a feed rather than inventing one.
+export const turnFeedFor = (id, toolType = 'carbide') => {
+  const m = getMaterial(id);
+  if (!m || !m.turnFeed) return null;
+  const band = m.turnFeed[toolType];
+  return Array.isArray(band) && band.length === 2 ? band : null;
+};
 
 export const upsertMaterial = (material) => {
   const list = listMaterials().map(clone);

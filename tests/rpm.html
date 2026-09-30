@@ -15,9 +15,10 @@
 <pre id="out">running...</pre>
 <iframe id="app" src="../index.html"></iframe>
 <script type="module">
-// The RPM page changes what the main diameter means, which diameter label is
-// shown, whether a separate workpiece field appears, and whether a feed can be
-// produced at all with no material loaded. Each of those is checked here.
+// The RPM page is speed only. It changes what the main diameter means, which
+// diameter label is shown, and whether a separate workpiece field appears. It
+// must never report a feed in either mode, and it must not ask for a flute
+// count, because surface speed and feed are independent axes.
 const results = [];
 const check = (name, got, want) => {
   const ok = String(got) === String(want);
@@ -82,40 +83,44 @@ check('lathe labels the working diameter Part diameter', fieldLabel('dia'), 'Par
 check('lathe shows no separate workpiece field', hasField('partDia'), false);
 check('lathe does not report a separate workpiece speed', rowLabels().some((l) => /Speed at the/.test(l)), false);
 
-// A lathe with no material has no defensible chip load, so no feed is invented.
+// The page reports speed and nothing else. No feed, and no flute count.
 check('lathe with no material reports no feed', rowLabels().some((l) => /Feed per revolution/.test(l)), false);
 check('lathe with no material still reports the speed', /Spindle speed/.test(rowLabels().join(' ')), true);
+check('lathe never asks for a flute count', hasField('flutes'), false);
+check('the half inch mild steel default lands on 1910 rpm', /1,909|1,910/.test(rowValue('Spindle speed') || ''), true);
+check('the default cutting speed reads back as 250 SFM', /250\.0SFM/.test(rowValue('Cutting speed') || ''), true);
 
 // --- mill mode flips the label and brings the workpiece field back ---
 await setMode('mill');
 check('mill labels the working diameter Tool diameter', fieldLabel('dia'), 'Tool diameter');
 check('mill shows the workpiece field', hasField('partDia'), true);
 check('mill without a workpiece omits the workpiece speed', rowLabels().some((l) => /Speed at the/.test(l)), false);
-
-// A mill can still fall back on a cutter-diameter chip load rule.
-check('mill with no material still estimates a feed', /Feed per revolution/.test(rowLabels().join(' ')), true);
-check('the fallback feed is the half inch four flute figure', /0\.0079in\/rev/.test(rowValue('Feed per revolution') || ''), true);
+check('mill never asks for a flute count', hasField('flutes'), false);
+check('mill with no material still reports no feed', /Feed per revolution/.test(rowLabels().join(' ')), false);
 
 await setField('partDia', '4');
 check('mill with a workpiece reports its speed', /Speed at the workpiece/.test(rowLabels().join(' ')), true);
 check('4 in workpiece at 1910 rpm is 2000 SFM', /2,000\.0SFM/.test(rowValue('Speed at the workpiece') || ''), true);
 
-// --- a loaded material is the only chip load a lathe should trust ---
+// --- a loaded material sets the speed, never a feed ---
 await setMode('lathe');
 check('returning to lathe hides the workpiece field', hasField('partDia'), false);
 check('returning to lathe restores the part diameter label', fieldLabel('dia'), 'Part diameter');
 
 await setSelect('matId', 'bronze-660');
-check('lathe with a material does report a feed', /Feed per revolution/.test(rowLabels().join(' ')), true);
-check('the material chip load drives the feed', /0\.0088in\/rev/.test(rowValue('Feed per revolution') || ''), true);
-check('the material also drove the cutting speed', /60\.0SFM/.test(rowValue('Cutting speed') || ''), true);
+check('lathe with a material still reports no feed', /Feed per revolution/.test(rowLabels().join(' ')), false);
+check('the material drove the cutting speed', /60\.0SFM/.test(rowValue('Cutting speed') || ''), true);
 
 await setSelect('matId', 'custom');
-check('dropping back to custom drops the invented feed again', rowLabels().some((l) => /Feed per revolution/.test(l)), false);
+check('dropping back to custom still reports no feed', rowLabels().some((l) => /Feed per revolution/.test(l)), false);
 
-// The lathe note must not tell the user to size a feed off a diameter.
+// The page must not tell the user to size a feed off any diameter, and must not
+// mention chip load or IPT at all.
 await setSelect('matId', 'bronze-660');
 check('the lathe page never suggests sizing feed off the part diameter', /chip load is scaled from the tool diameter/.test(root().textContent), false);
+check('the page mentions no chip load at all', /chip load/i.test(root().textContent), false);
+check('the page mentions no IPT at all', /\bIPT\b/.test(root().textContent), false);
+check('the page points feed work at the Table Feed page', /Table Feed page/.test(root().textContent), true);
 
 const failed = results.filter((r) => !r.ok);
 const lines = results.map((r) => `${r.ok ? 'pass' : 'FAIL'}  ${r.name}${r.ok ? '' : `\n        got  ${r.got}\n        want ${r.want}`}`);

@@ -223,12 +223,17 @@ export default panel({
     }
 
     const gcUnit = state.drillUnit === 'in' ? 'in' : 'mm';
-    const depthMm = state.depth__mm ?? 0;
-    const rpMm = state.rPlane__mm ?? 0;
+    const depthMm = state.depth__mm;
+    const rpMm = state.rPlane__mm;
     const feedMm = units.toCanonical(units.parseValue(state.feed), gcUnit, 'perMin');
     const peckMm = units.parseValue(state.peckDepth);
+    // A blank spindle is legitimate, the program just carries no S word. A blank
+    // one used to reach Math.trunc and arrive as NaN, which is not the same as
+    // "not given".
+    const rpmRaw = units.parseValue(state.spindle);
+    const spindleSpeed = Number.isFinite(rpmRaw) && rpmRaw > 0 ? Math.trunc(rpmRaw) : null;
 
-    const program = gcode.emitDrillCycle({
+    const progInput = {
       machine: state.machine,
       holes: pts.map((p) => ({ x: units.fromCanonical(p.x, gcUnit, 'length'), y: units.fromCanonical(p.y, gcUnit, 'length') })),
       zDepth: -units.fromCanonical(Math.abs(depthMm), gcUnit, 'length'),
@@ -238,16 +243,20 @@ export default panel({
       mode: state.progMode,
       tool: Math.trunc(units.parseValue(state.tool)),
       toolOffset: Math.trunc(units.parseValue(state.toolOffset)),
-      safeZ: units.fromCanonical(Math.abs(state.safeZ__mm ?? 0), gcUnit, 'length'),
+      safeZ: units.fromCanonical(Math.abs(state.safeZ__mm || 0), gcUnit, 'length'),
       peck: state.peck === 'peck',
       peckDepth: state.peck === 'peck' ? units.fromCanonical(Math.abs(peckMm), gcUnit, 'length') : null,
-      spindleSpeed: Math.trunc(units.parseValue(state.spindle)),
+      spindleSpeed,
       holeLabel: `BOLT CIRCLE BCD ${units.fmt(units.fromCanonical(pcdMm, gcUnit, 'length'), 3)}${units.unitLabel(gcUnit, 'length')} x ${holes} HOLES`,
-    });
+    };
+    // Checked before emitting, so a blank depth, R plane or feed reports a
+    // message instead of quietly producing Z0. or F0.0000 in a program.
+    const issues = gcode.gcodeIssues(progInput);
 
-    extra.push(codeBlock(program, 'BOLT CIRCLE'));
+    if (!issues.length) extra.push(codeBlock(gcode.emitDrillCycle(progInput), 'BOLT CIRCLE'));
+    else extra.push(notice(`Program not generated: ${issues.join('. ')}.`, 'warn'));
     for (const w of gcode.gcodeWarnings(state.machine, state.progMode)) extra.push(notice(w, 'warn'));
 
-    return { results, notes, warnings, extra: extra.join('') };
+    return { results, notes, warnings, error: issues.join('. '), extra: extra.join('') };
   },
 });

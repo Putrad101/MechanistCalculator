@@ -261,6 +261,11 @@ def read_js():
         return fh.read()
 
 
+def read_materials():
+    with open(os.path.join(ROOT, "js", "materials.js"), encoding="utf-8") as fh:
+        return fh.read()
+
+
 def rows_of(source, name):
     """Pull the object literals out of an exported array in js/tables.js."""
     match = re.search(rf"export const {name} = \[(.*?)\n\];", source, re.S)
@@ -381,10 +386,102 @@ def test_drill_tables():
     check("letter B is 0.2380", b_row["inch"], 0.2380, 1e-9)
 
 
+def tap_feed(pitch, rpm, feed_mode="G94", unit="in"):
+    """Tapping feed has to equal the thread lead, so this is the one place feed
+    does follow from speed. G94 is feed per minute, G99 is feed per rev. The
+    result comes back in the same unit as the lead that went in."""
+    return pitch * rpm if feed_mode == "G94" else pitch
+
+
+def test_tapping_feed():
+    # 1/4-20 UNF lead is 0.0500 in, 1.0 mm pitch is 1.0 mm.
+    check("G94 tap feed on 1/4-20 at 800 rpm in inches", tap_feed(0.05, 800, "G94", "in"), 40.0, 1e-9)
+    check("G99 tap feed on 1/4-20 is the lead in inches", tap_feed(0.05, 800, "G99", "in"), 0.05, 1e-9)
+    check("G94 tap feed on M8x1 at 500 rpm", tap_feed(1.0, 500, "G94", "mm"), 500.0, 1e-9)
+    check("G99 tap feed on M8x1 is the pitch", tap_feed(1.0, 500, "G99", "mm"), 1.0, 1e-9)
+    # G94 scales with rpm, G99 does not. This is the distinction that used to be
+    # missed, where the rpm was written straight into the F word.
+    check("G94 tap feed doubles with the rpm", tap_feed(1.0, 1000, "G94", "mm"), 2 * tap_feed(1.0, 500, "G94", "mm"), 1e-9)
+    check("G99 tap feed ignores the rpm", tap_feed(1.0, 1000, "G99", "mm"), tap_feed(1.0, 500, "G99", "mm"), 1e-9)
+    # The lead is fixed by the thread, so it must never equal the rpm.
+    ok("tap feed is not the rpm", abs(tap_feed(0.05, 800, "G94", "in") - 800) > 1)
+
+
+def test_turning_feed_data():
+    """Parse the TURN_FEED table out of js/materials.js and sanity check it.
+
+    The bands are starting values from published shop tables, so they are not
+    checked against a single source. What is checked is internal consistency:
+    a well formed range, carbide above HSS, and a sensible ordering between
+    materials of very different machinability.
+    """
+    source = read_materials()
+    match = re.search(r"const TURN_FEED = \{(.*?)\n\};", source, re.S)
+    ok("materials.js exports TURN_FEED", bool(match))
+    if not match:
+        return
+    body = match.group(1)
+
+    # One row per line, in the form  'id': TF([lo, hi], [lo, hi]),
+    bands = {}
+    for line in body.splitlines():
+        row = re.match(r"\s*'([a-z0-9-]+)':\s*TF\(\s*\[([^]]*)\],\s*\[([^]]*)\]", line)
+        if not row:
+            continue
+        mid = row.group(1)
+        pairs = ([float(n) for n in re.findall(r"\d*\.?\d+", row.group(2))],
+                 [float(n) for n in re.findall(r"\d*\.?\d+", row.group(3))])
+        bands[(mid, "carbide")] = (pairs[0][0], pairs[0][1])
+        bands[(mid, "hss")] = (pairs[1][0], pairs[1][1])
+
+    ok(f"TURN_FEED has rows (got {len(bands)})", len(bands) > 0)
+    for (mid, tool), (lo, hi) in sorted(bands.items()):
+        ok(f"{mid} {tool} low is positive", lo > 0)
+        ok(f"{mid} {tool} range is not inverted", hi >= lo)
+
+    # Only the seed array, so the tooling ids and hardness words that also carry
+    # an id field elsewhere in the file are not mistaken for materials.
+    seed_block = re.search(r"const SEED = \[(.*?)\n\];", source, re.S)
+    ok("materials.js has a SEED array", bool(seed_block))
+    if not seed_block:
+        return
+    seeded = re.findall(r"\bid:\s*'([a-z0-9-]+)'", seed_block.group(1))
+    ok(f"SEED parsed out at least 20 materials (got {len(seeded)})", len(seeded) >= 20)
+    for mid in seeded:
+        ok(f"{mid} has a carbide band", (mid, "carbide") in bands)
+        ok(f"{mid} has an hss band", (mid, "hss") in bands)
+
+    # Carbon steel vs stainless. Stainless is gummy and work hardens, so it has
+    # to run lighter than plain carbon steel.
+    ok("stainless turning feed is below plain carbon steel",
+       bands[("ss-304", "carbide")][1] < bands[("steel-1018", "carbide")][1])
+    # Hardened tool steel and the nickel alloys are the toughest things seeded.
+    ok("17-4 stainless is below 304",
+       bands[("ss-17-4", "carbide")][1] <= bands[("ss-304", "carbide")][1]
+       if ("ss-17-4", "carbide") in bands else True)
+    # The shop bearing bronzes: SAE 660 is soft, SAE 955 is hard.
+    # SAE 660 is the soft one, SAE 955 the hard one, so the bands must not
+    # overlap. Touching at a single value is acceptable, crossing is not.
+    ok("SAE 660 does not overlap SAE 955",
+       bands[("bronze-660", "carbide")][0] >= bands[("bronze-955", "carbide")][1])
+    # HSS is a fraction of carbide on every row.
+    for (mid, tool), (lo, hi) in sorted(bands.items()):
+        if tool != "hss" or (mid, "carbide") not in bands:
+            continue
+        ok(f"{mid} hss is below carbide", hi < bands[(mid, "carbide")][1])
+
+    # The band midpoint is what the Table Feed page seeds, so it has to land
+    # inside its own range for any pair of numbers.
+    for (mid, tool), (lo, hi) in sorted(bands.items()):
+        midp = (lo + hi) / 2
+        ok(f"{mid} {tool} midpoint is inside the range", lo <= midp <= hi)
+
+
 def main():
     for fn in (
         test_rpm_and_speed,
         test_feeds,
+        test_tapping_feed,
         test_drill_geometry,
         test_bolt_circle,
         test_threads,
@@ -393,6 +490,7 @@ def main():
         test_unified_table,
         test_metric_table,
         test_drill_tables,
+        test_turning_feed_data,
     ):
         try:
             fn()

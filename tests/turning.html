@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>turning feed and gcode - checks</title>
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 1rem; }
+  pre { white-space: pre-wrap; }
+  .pass { color: #0a6; } .fail { color: #c00; font-weight: 600; }
+  iframe { width: 430px; height: 1100px; border: 1px solid #ccc; }
+</style>
+</head>
+<body>
+<h1>Turning feed data and G-code output</h1>
+<pre id="out">running...</pre>
+<iframe id="app" src="../index.html"></iframe>
+<script type="module">
+// Two things are checked here.
+//
+// 1. The G-code emitter. These are fixes to real defects: the tool and offset
+//    words used to contain a space, no work offset or feed mode was ever
+//    asserted, two of the three controls got a G28 with no G53, the generic
+//    Fanuc profile emitted no holes at all in incremental mode, rigid tapping
+//    was armed by a bare M29 parked in the header, and a blank field used to
+//    reach num() and come out as a silent F0.0000 or Z0.
+//
+// 2. The turning side of the Table Feed page, which now takes a feed per rev and
+//    seeds it from the material's turning band.
+import * as gcode from '../js/gcode.js';
+import * as mat from '../js/materials.js';
+
+const results = [];
+const check = (name, got, want) => {
+  results.push({ name, got, want, ok: String(got) === String(want) });
+};
+const ok = (name, cond) => check(name, cond ? 'yes' : 'no', 'yes');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const BASE = {
+  holes: [{ x: 1, y: 0 }, { x: 0, y: 1 }],
+  zDepth: -0.5,
+  rPlane: 0.1,
+  feed: 8,
+  unit: 'in',
+  spindleSpeed: 800,
+  tool: 3,
+  toolOffset: 3,
+  safeZ: 1,
+};
+
+// ---------- 1. the emitter ----------
+{
+  const p = gcode.emitDrillCycle({ ...BASE, machine: 'haas' });
+  const lines = p.split('\n');
+
+  check('tool word is zero padded with no space', /(^|\n)T03 M06(\n|$)/.test(p), true);
+  check('no tool word contains a space', /^T\s/m.test(p), false);
+  check('length offset word is zero padded with no space', /H03 Z/.test(p), true);
+  check('work offset is asserted', /G54/.test(p), true);
+  check('feed mode is asserted', /G94/.test(p), true);
+  check('Z reference return uses G53', /G00 G53 G28 Z0\./.test(p), true);
+  check('first hole has coordinates', /X1\.0000 Y0\.0000/.test(p), true);
+  check('no line has a stray double space mid word', /[A-Z]  +[0-9]/.test(p), false);
+  check('program ends with M30', /M30\n%$/.test(p), true);
+}
+{
+  // The defect was a plain G28 on these two, which is a two stage move that can
+  // rapid into the part.
+  for (const m of ['okuma', 'fanuc']) {
+    const p = gcode.emitDrillCycle({ ...BASE, machine: m });
+    check(`${m} uses G53 on the Z return`, /G00 G53 G28 Z0\./.test(p), true);
+    check(`${m} never emits a bare G28`, /G00 G28(?!.*G53)/.test(p), false);
+  }
+}
+{
+  // incDiameter is false only for generic Fanuc. That branch used to print
+  // G91.1 and G90 and nothing else, so the program drilled no holes at all.
+  const p = gcode.emitDrillCycle({ ...BASE, machine: 'fanuc', mode: 'incremental' });
+  check('fanuc incremental still drills holes', /G98 G81/.test(p), true);
+  check('fanuc incremental has hole coordinates', /X1\.0000 Y0\.0000/.test(p), true);
+  check('fanuc incremental does not claim G91.1', /^G91\.1/m.test(p), false);
+}
+{
+  // Haas does support it, so that path must survive the fix.
+  const p = gcode.emitDrillCycle({ ...BASE, machine: 'haas', mode: 'incremental' });
+  check('haas incremental still uses G91.1', /^G91\.1$/m.test(p), true);
+  check('haas incremental restores G90.1', /^G90\.1$/m.test(p), true);
+}
+{
+  // Rigid tapping: M29 carries the S and sits immediately before the G84.
+  const p = gcode.emitDrillCycle({ ...BASE, machine: 'haas', cycle: 'g84', feed: 40 });
+  const lines = p.split('\n');
+  const m29 = lines.findIndex((l) => l.startsWith('M29'));
+  const g84 = lines.findIndex((l) => l.includes('G98 G84'));
+  ok('M29 is present', m29 >= 0);
+  check('M29 carries the spindle speed', m29 >= 0 ? lines[m29] : '', 'M29 S800');
+  check('M29 is the block right before G84', g84 - m29, 1);
+  check('the G84 feed word is 40.0000 not the rpm', /F40\.0000/.test(p), true);
+  check('a G85 cycle does not get an M29', /^M29/m.test(gcode.emitDrillCycle({ ...BASE, machine: 'haas', cycle: 'g85', feed: 40 })), false);
+}
+{
+  // Validation. A blank field must report a message, not produce F0.0000.
+  check('blank depth is reported', gcode.gcodeIssues({ ...BASE, zDepth: NaN }).some((s) => /Depth/.test(s)), true);
+  check('blank feed is reported', gcode.gcodeIssues({ ...BASE, feed: NaN }).some((s) => /Feed/.test(s)), true);
+  check('zero feed is reported', gcode.gcodeIssues({ ...BASE, feed: 0 }).some((s) => /Feed/.test(s)), true);
+  check('depth of zero is reported', gcode.gcodeIssues({ ...BASE, zDepth: 0 }).some((s) => /Depth/.test(s)), true);
+  check('R plane below the bottom is reported', gcode.gcodeIssues({ ...BASE, rPlane: -0.6 }).some((s) => /R plane/.test(s)), true);
+  check('no holes is reported', gcode.gcodeIssues({ ...BASE, holes: [] }).some((s) => /no holes/i.test(s)), true);
+  check('a good input reports nothing', gcode.gcodeIssues(BASE).length, 0);
+  check('a missing spindle is allowed', gcode.gcodeIssues({ ...BASE, spindleSpeed: null }).length, 0);
+  let threw = false;
+  try { gcode.emitDrillCycle({ ...BASE, feed: NaN }); } catch { threw = true; }
+  check('the emitter refuses to write a bad number', threw, true);
+}
+{
+  // A spot pass is a plain G81. It used to pass the peck flag through, and the
+  // cycle word defaults to g83 when peck is set, so a spot could deep peck.
+  const p = gcode.emitSpotCycle({ ...BASE, peck: true, zDepth: -0.05 });
+  check('a spot pass is a G81', /G98 G81/.test(p), true);
+  check('a spot pass never pecks', /Q/.test(p), false);
+}
+{
+  // The rpm rides in the M29 word, so a blank spindle on a rigid tap would arm
+  // the tap at zero. G85 has no M29 and so does not need the field.
+  let threw = false;
+  try { gcode.emitDrillCycle({ ...BASE, cycle: 'g84', feed: 40, spindleSpeed: null }); } catch (e) { threw = /spindle speed is required/.test(e.message); }
+  check('G84 without a spindle speed is refused', threw, true);
+  check('G84 never emits M29 S0', /^M29 S0$/m.test(gcode.emitDrillCycle({ ...BASE, cycle: 'g85', feed: 40 })), false);
+  check('G85 without a spindle speed is fine', /^M29/m.test(gcode.emitDrillCycle({ ...BASE, cycle: 'g85', feed: 40, spindleSpeed: null })), false);
+}
+
+// ---------- 2. the turning band data ----------
+{
+  check('a seeded material has a carbide turning band', Array.isArray(mat.turnFeedFor('steel-1018', 'carbide')), true);
+  check('mild steel band is 0.003 to 0.007 in/rev', JSON.stringify(mat.turnFeedFor('steel-1018', 'carbide')), JSON.stringify([0.003, 0.007]));
+  check('stainless band is below mild steel', mat.turnFeedFor('ss-304', 'carbide')[1] < mat.turnFeedFor('steel-1018', 'carbide')[1], true);
+  check('the shop bronzes are lighter than generic bronze', mat.turnFeedFor('bronze-955', 'carbide')[1] < mat.turnFeedFor('bronze-fm', 'carbide')[0], true);
+  check('SAE 660 does not overlap SAE 955', mat.turnFeedFor('bronze-660', 'carbide')[0] >= mat.turnFeedFor('bronze-955', 'carbide')[1], true);
+  const bad = mat.listMaterials().filter((m) => m.turnFeed
+    && (!Array.isArray(m.turnFeed.carbide) || m.turnFeed.carbide[1] < m.turnFeed.carbide[0] || m.turnFeed.carbide[0] <= 0));
+  check('no material has an inverted or empty band', bad.length, 0);
+  check('an unknown material has no band', mat.turnFeedFor('nope-1234', 'carbide'), null);
+}
+
+// ---------- 3. the turning side of the Table Feed page ----------
+const frame = document.getElementById('app');
+let waited = 0;
+while (waited < 10000) {
+  const doc = frame.contentDocument;
+  if (doc && doc.querySelector('#nav-list .nav-item')) break;
+  await sleep(150);
+  waited += 150;
+}
+const d = frame.contentDocument;
+const W = frame.contentWindow;
+const errs = [];
+W.addEventListener('error', (e) => errs.push(`${e.message} @ ${e.filename}:${e.lineno}`));
+try { W.localStorage.removeItem('mechcalc:calcState:tablefeed'); } catch { /* ignore */ }
+
+d.querySelector('.nav-item[data-calc="tablefeed"]').click();
+await sleep(450);
+const root = () => d.querySelector('.calc-slot:not([hidden])');
+const hasField = (name) => Boolean(root().querySelector(`[data-f="${name}"]`));
+const rowValue = (needle) => {
+  const r = [...root().querySelectorAll('.res-row')].find((x) => x.textContent.includes(needle));
+  return r ? r.textContent.replace(/\s+/g, ' ').trim() : null;
+};
+const setSelect = async (name, v) => {
+  const el = root().querySelector(`select[data-f="${name}"]`);
+  el.value = v;
+  el.dispatchEvent(new W.Event('change', { bubbles: true }));
+  await sleep(420);
+};
+const setField = async (name, v) => {
+  const el = root().querySelector(`[data-f="${name}"]`);
+  el.value = v;
+  el.dispatchEvent(new W.Event('input', { bubbles: true }));
+  await sleep(360);
+};
+const setSeg = async (v) => {
+  root().querySelector(`.seg[data-value="${v}"]`).click();
+  await sleep(450);
+};
+
+check('table feed opens in milling', hasField('flutes'), true);
+await setSeg('turning');
+check('turning mode has no flute count', hasField('flutes'), false);
+check('turning mode asks for feed per rev', hasField('ipr'), true);
+check('turning mode drops the chip load per tooth', hasField('ipt'), false);
+check('turning mode reports a table feed', /Table feed/.test(rowValue('Table feed') || ''), true);
+
+await setField('rpm', '800');
+await setField('ipr', '0.0050');
+check('IPM is feed per rev times rpm', /^Table feed 4\.0000IPM\|101\.60mm\/min/.test(rowValue('Table feed') || ''), true);
+check('feed per rev shows both units', /^Feed per revolution 0\.0050in\/rev\|0\.1270mm\/rev/.test(rowValue('Feed per revolution') || ''), true);
+
+await setSelect('matId', 'bronze-660');
+const seeded = root().querySelector('[data-f="ipr"]').value;
+check('SAE 660 seeds the band midpoint', seeded, '0.00225');
+check('the seeded figure lands in the table feed', /^Table feed 1\.8000IPM\|45\.72mm\/min/.test(rowValue('Table feed') || ''), true);
+check('the material band is reported', /Material starting band/.test(root().textContent), true);
+check('the page warns that these are starting values', /Starting values from published shop tables/.test(root().textContent), true);
+
+await setSelect('matId', 'bronze-955');
+check('SAE 955 seeds a lighter feed', root().querySelector('[data-f="ipr"]').value, '0.00115');
+check('SAE 955 shows a band', /0\.0008 to 0\.0015 in\/rev/.test(root().textContent.replace(/\s+/g, ' ')), true);
+
+await setField('ipr', '0.0200');
+check('a feed outside the band is flagged', /outside the/.test(root().textContent), true);
+
+await setSelect('matId', 'custom');
+check('a custom material shows no band', /Material starting band/.test(root().textContent), false);
+await setField('ipr', '');
+check('a blank feed per rev asks rather than guessing', /Enter a feed per revolution/.test(root().textContent), true);
+check('a blank feed invents no table feed', /Could not calculate/.test(root().textContent), true);
+
+await setSeg('milling');
+check('milling comes back with the chip load', hasField('ipt'), true);
+check('milling comes back with flutes', hasField('flutes'), true);
+
+const failed = results.filter((r) => !r.ok);
+const lines = results.map((r) => `${r.ok ? 'pass' : 'FAIL'}  ${r.name}${r.ok ? '' : `\n        got  ${r.got}\n        want ${r.want}`}`);
+lines.push('');
+lines.push(failed.length ? `${failed.length} of ${results.length} checks failed` : `all ${results.length} checks passed`);
+lines.push(`errors: ${errs.length ? errs.join(' | ') : 'none'}`);
+const out = document.getElementById('out');
+out.textContent = lines.join('\n');
+out.className = failed.length ? 'fail' : 'pass';
+document.title = failed.length ? 'FAIL turning and gcode' : 'PASS turning and gcode';
+</script>
+</body>
+</html>

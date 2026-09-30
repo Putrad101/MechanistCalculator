@@ -3,6 +3,7 @@ import * as F from './calc/formulas.js';
 import * as T from './tables.js';
 import * as mat from './materials.js';
 import * as gcode from './gcode.js';
+import * as threads from './calc/threads.js';
 
 const cases = [];
 const test = (name, got, want, tol = 0) => {
@@ -138,7 +139,16 @@ export const run = () => {
   test('incremental diameter mode uses G91.1', /G91\.1/.test(metric), true);
   test('G91.1 is turned back off with G90.1', /G90\.1/.test(metric), true);
   test('G83 appears when pecking', /G98 G83/.test(gcode.emitDrillCycle({ machine: 'fanuc', holes: [{ x: 0, y: 0 }], zDepth: -1, rPlane: 0.1, feed: 5, unit: 'in', peck: true, peckDepth: 0.25 })), true);
-  test('G84 tapping emits M29', /M29/.test(gcode.emitDrillCycle({ machine: 'haas', holes: [{ x: 0, y: 0 }], zDepth: -0.5, rPlane: 0.1, feed: 800, unit: 'in', cycle: 'g84' })), true);
+  // 1/4-20 tapping. The feed is the lead times the rpm, not the rpm itself: at
+  // 800 rpm the lead is 1/20 in/rev, so the feed is 40.0 IPM. This case used to
+  // pass feed 800 and emit M29 S0 with no spindle speed at all.
+  const g84 = gcode.emitDrillCycle({ machine: 'haas', holes: [{ x: 0, y: 0 }], zDepth: -0.5, rPlane: 0.1, feed: 40, unit: 'in', spindleSpeed: 800, cycle: 'g84' });
+  test('G84 tapping emits M29', /M29/.test(g84), true);
+  test('G84 M29 carries the tap rpm', /M29 S800/.test(g84), true);
+  test('G84 feed is the lead at that rpm, not the rpm', /F40\.0000/.test(g84), true);
+  test('G84 is refused without a spindle speed', (() => {
+    try { gcode.emitDrillCycle({ machine: 'haas', holes: [{ x: 0, y: 0 }], zDepth: -0.5, rPlane: 0.1, feed: 40, unit: 'in', cycle: 'g84' }); return false; } catch { return true; }
+  })(), true);
 
   test('SAE 660 bronze is seeded', !!mat.getMaterial('bronze-660'), true);
   test('SAE 660 bronze is marked unverified', mat.getMaterial('bronze-660').verified, false);
@@ -157,6 +167,26 @@ export const run = () => {
     mat.getMaterial('bronze-660').tools.carbide.ipt > mat.getMaterial('bronze-955').tools.carbide.ipt, true);
   test('every material has a valid hardness class',
     mat.listMaterials().every((m) => ['soft', 'medium', 'hard'].includes(m.hardness)), true);
+
+  // Tapping feed is the one place where feed does follow from speed, because the
+  // feed has to equal the thread lead. G94 takes the lead per minute, G99 takes
+  // the lead per revolution.
+  near('G94 tap feed on 1/4-20 at 800 rpm', threads.tapFeed(25.4 / 20, 800, 'G94', 'in'), 40, 1e-9);
+  near('G99 tap feed on 1/4-20 at 800 rpm is the lead', threads.tapFeed(25.4 / 20, 800, 'G99', 'in'), 0.05, 1e-9);
+  near('G94 tap feed in mm per minute', threads.tapFeed(1.5, 500, 'G94', 'mm'), 750, 1e-9);
+  near('G99 tap feed in mm per revolution', threads.tapFeed(1.5, 500, 'G99', 'mm'), 1.5, 1e-9);
+  test('G94 tap feed scales with the rpm, G99 does not',
+    threads.tapFeed(1.5, 1000, 'G94', 'mm') === 2 * threads.tapFeed(1.5, 500, 'G94', 'mm')
+    && threads.tapFeed(1.5, 1000, 'G99', 'mm') === threads.tapFeed(1.5, 500, 'G99', 'mm'), true);
+
+  // Turning bands. A lathe has no flutes, so a turning feed is a range per rev.
+  test('every seeded material has a carbide turning band',
+    mat.listMaterials().every((m) => Array.isArray(m.turnFeed && m.turnFeed.carbide)), true);
+  test('no turning band is inverted or empty',
+    mat.listMaterials().every((m) => m.turnFeed.carbide[0] > 0 && m.turnFeed.carbide[1] >= m.turnFeed.carbide[0]), true);
+  test('HSS turning feeds are below carbide',
+    mat.listMaterials().every((m) => m.turnFeed.hss[1] < m.turnFeed.carbide[1]), true);
+  test('an unknown material has no turning band', mat.turnFeedFor('nope-1234', 'carbide'), null);
 
   const outOfRange = T.THREADS_UN.filter((t) => {
     const p = 1 / t.tpi;

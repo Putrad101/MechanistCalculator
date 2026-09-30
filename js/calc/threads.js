@@ -11,6 +11,32 @@ const UN_SERIES = [
   { value: 'UNEF', label: 'UNEF - Unified extra fine' },
 ];
 
+// A tap is a thread forming tool, so the feed per revolution has to equal the
+// lead of the thread. That is the one place in this app where feed really is
+// tied to speed, and it is why the old code tried to use the rpm as the feed.
+//
+//   G94, feed per minute  : F = lead x rpm   (in: rpm / TPI,  mm: pitch x rpm)
+//   G99, feed per rev     : F = lead         (in: 1 / TPI,    mm: pitch)
+//
+// Exported so the unit tests can check the arithmetic directly.
+export const tapFeed = (pitchMm, rpm, feedMode = 'G94', unit = 'in') => {
+  if (!Number.isFinite(pitchMm) || pitchMm <= 0) return NaN;
+  if (!Number.isFinite(rpm) || rpm <= 0) return NaN;
+  const leadMm = pitchMm;
+  if (feedMode === 'G99') return units.fromCanonical(leadMm, unit, 'length');
+  const perMinMm = leadMm * rpm;
+  return units.fromCanonical(perMinMm, unit, 'perMin');
+};
+
+const setTapFeed = (root, state) => {
+  const pitchMm = state.pitch__mm;
+  const rpm = units.parseValue(state.spindle);
+  const f = tapFeed(pitchMm, rpm, state.feedMode, state.unit);
+  if (Number.isFinite(f)) {
+    setField(root, 'feed', units.fmt(f, state.unit === 'in' ? 4 : 3), state.unit, state.feedMode === 'G99' ? 'perRev' : 'perMin');
+  }
+};
+
 const PCT_OPTIONS = [
   { value: '75', label: '75% thread - usual for general work' },
   { value: '65', label: '65% thread - harder material' },
@@ -49,6 +75,7 @@ export default panel({
     tool: '3',
     toolOffset: '3',
     spindle: '800',
+    feedMode: 'G94',
   },
 
   body(state) {
@@ -94,9 +121,16 @@ export default panel({
         ),
         fieldRow(
           field({ label: 'R plane', name: 'rPlane', value: state.rPlane, unit: state.unit, dim: 'length' }),
-          field({ label: 'Feed (equal to rpm)', name: 'feed', value: state.feed, unit: state.unit, dim: 'perMin' }),
           field({ label: 'Spindle rpm', name: 'spindle', value: state.spindle, step: 50 }),
         ),
+        fieldRow(
+          select({
+            label: 'Feed mode', name: 'feedMode', value: state.feedMode,
+            options: gcode.FEED_MODES.map((f) => ({ value: f.id, label: f.label, hint: f.hint })),
+          }),
+          field({ label: 'Feed', name: 'feed', value: state.feed, unit: state.unit, dim: state.feedMode === 'G99' ? 'perRev' : 'perMin' }),
+        ),
+        notice('The feed is set from the pitch and the rpm, because a tap is a thread forming tool: the feed per rev has to equal the lead or the tap will gall or break. A G94 control wants feed per minute (lead &times; rpm). A G99 lathe wants the lead itself.', 'info'),
         fieldRow(
           select({
             label: 'Machine', name: 'machine', value: state.machine,
@@ -105,8 +139,8 @@ export default panel({
           select({
             label: 'Cycle', name: 'tapCycle', value: state.tapCycle,
             options: [
-              { value: 'g84', label: 'G84 floating tap (needs M29)' },
-              { value: 'g85', label: 'G85 rigid tap' },
+              { value: 'g84', label: 'G84 tap (M29 rigid tap added automatically)' },
+              { value: 'g85', label: 'G85 rigid tap (Fanuc needs G84 with M29)' },
             ],
           }),
         ),
@@ -160,9 +194,12 @@ export default panel({
     }
     if (key === 'pitchUnit') convertField(root, 'pitch', 'length', state.pitchUnit);
     if (key === 'pct') return true;
-    if (key === 'spindle') {
-      setField(root, 'feed', units.fmt(units.parseValue(state.spindle), 1), state.unit, 'perMin');
+    // The tap feed follows the lead. It is not free to be any value, so it is
+    // driven from the pitch and the rpm rather than typed in.
+    if (key === 'spindle' || key === 'feedMode' || key === 'pitch' || key === 'metricDes' || key === 'des') {
+      setTapFeed(root, state);
     }
+    if (key === 'feedMode') return true;
     return false;
   },
 
@@ -252,17 +289,24 @@ export default panel({
     ];
 
     const unit = state.unit;
-    const depthMm = state.depth__mm ?? units.toCanonical(1, 'in', 'length');
-    const rMm = state.rPlane__mm ?? units.toCanonical(0.1, 'in', 'length');
-    const rpm = units.parseValue(state.spindle) || 0;
+    const rpm = units.parseValue(state.spindle);
+    const feedMode = state.feedMode === 'G99' ? 'G99' : 'G94';
     const cycle = state.tapCycle;
+    const depthMm = state.depth__mm;
+    const rMm = state.rPlane__mm;
+    const xMm = state.x__mm;
+    const yMm = state.y__mm;
+    // Driven from the lead, not taken from the field, so a stale or hand typed
+    // feed cannot put a wrong number in the program.
+    const feed = tapFeed(pitchMm, rpm, feedMode, unit);
 
-    const program = gcode.emitDrillCycle({
+    const progInput = {
       machine: state.machine,
-      holes: [{ x: units.fromCanonical(state.x__mm || 0, unit, 'length'), y: units.fromCanonical(state.y__mm || 0, unit, 'length') }],
+      holes: [{ x: units.fromCanonical(xMm, unit, 'length'), y: units.fromCanonical(yMm, unit, 'length') }],
       zDepth: -units.fromCanonical(Math.abs(depthMm), unit, 'length'),
       rPlane: units.fromCanonical(Math.abs(rMm), unit, 'length'),
-      feed: units.fromCanonical(rpm, unit, 'perMin'),
+      feed,
+      feedMode,
       unit,
       cycle,
       tool: Math.trunc(units.parseValue(state.tool)),
@@ -270,12 +314,22 @@ export default panel({
       safeZ: units.fromCanonical(units.toCanonical(0.5, 'in', 'length'), unit, 'length'),
       spindleSpeed: rpm,
       holeLabel: `${metric ? 'METRIC TAP' : 'TAP'} ${desLabel} TAP DRILL ${units.fmt(units.fromCanonical(drillToUse, unit, 'length'), 4)}`.replace(/\s+/g, ' '),
-    });
+    };
+    // Checked before emitting. gcodeIssues catches a blank depth, R plane, feed
+    // or rpm, which used to reach num() and come out as a silent Z0. or F0.0000
+    // in a program the operator was invited to run.
+    const issues = gcode.gcodeIssues(progInput);
+    const program = issues.length ? '' : gcode.emitDrillCycle(progInput);
+
+    const leadText = feedMode === 'G99'
+      ? `${units.fmt(feed, 4)} ${units.unitLabel(unit, 'perRev')} of feed, which is the lead of the thread.`
+      : `${units.fmt(feed, 2)} ${units.unitLabel(unit, 'perMin')} of feed, which is the lead of ${units.fmt(pitchMm / 25.4, 4)} in at ${units.fmt(rpm, 0)} rpm.`;
 
     return {
       results,
       notes,
       warnings,
+      error: issues.length ? issues.join('. ') : '',
       extra: [
         section('Nearest stock drills for the tap', dataTable(
           [
@@ -287,9 +341,9 @@ export default panel({
           rows,
           { dense: true },
         )),
-        codeBlock(program, 'TAP'),
-        notice(`Tap feed must equal spindle rpm exactly. ${units.fmt(rpm, 0)} rpm means ${units.fmt(units.fromCanonical(rpm, unit, 'perMin'), 1)} ${units.unitLabel(unit, 'perMin')} of feed. If those do not match, the tap will gall or break.`, 'warn'),
-        notice(`For a blind hole, drill the tap hole at least one full pitch deeper than the full thread depth, so the tap does not bottom out before the thread is complete.`, 'info'),
+        program ? codeBlock(program, 'TAP') : '',
+        notice(`The tap feed is the lead, because a tap forms the thread. ${leadText} If the control is in the other feed mode, the program will be wrong.`, 'warn'),
+        notice('For a blind hole, drill the tap hole at least one full pitch deeper than the full thread depth, so the tap does not bottom out before the thread is complete.', 'info'),
       ].join(''),
     };
   },

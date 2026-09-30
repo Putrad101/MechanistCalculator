@@ -149,6 +149,47 @@ try {
       log.push('WARN no #mat-search input');
     }
 
+    // The editor has to round-trip a hand typed turning band, otherwise a shop
+    // that proves its own figure loses it on save.
+    try {
+      const bronze = qa('.mat-item').find((r) => /SAE 660/.test(txt(r)));
+      if (bronze) {
+        bronze.querySelector('.mat-open').click();
+        await sleep(400);
+        const lo = d.querySelector('[data-f="tf_carbide_lo"]');
+        const hi = d.querySelector('[data-f="tf_carbide_hi"]');
+        if (lo && hi) {
+          log.push(`660 carbide turning band fields: lo="${lo.value}" hi="${hi.value}"`);
+          lo.value = '0.0011';
+          hi.value = '0.0044';
+          lo.dispatchEvent(new w.Event('input', { bubbles: true }));
+          hi.dispatchEvent(new w.Event('input', { bubbles: true }));
+          await sleep(500);
+          const saveBtn = qa('button').find((b) => /save/i.test(b.textContent) && b.offsetParent !== null);
+          if (saveBtn) saveBtn.click();
+          await sleep(400);
+          qa('.mat-item').find((r) => /SAE 660/.test(txt(r))).querySelector('.mat-open').click();
+          await sleep(400);
+          const back = d.querySelector('[data-f="tf_carbide_lo"]');
+          const backHi = d.querySelector('[data-f="tf_carbide_hi"]');
+          const kept = back && backHi && back.value === '0.00110' && backHi.value === '0.00440';
+          log.push(`${kept ? 'OK  ' : 'FAIL'} 660 hand typed band survives a save: got ${back && back.value} to ${backHi && backHi.value}, want 0.00110 to 0.00440`);
+          // Put the shipped value back so the run is repeatable.
+          if (back && backHi) {
+            back.value = '0.00150';
+            backHi.value = '0.00300';
+            back.dispatchEvent(new w.Event('input', { bubbles: true }));
+            backHi.dispatchEvent(new w.Event('input', { bubbles: true }));
+            await sleep(600);
+          }
+        } else {
+          log.push('FAIL 660 turning band fields are missing from the editor');
+        }
+      } else {
+        log.push('WARN could not find the SAE 660 row to open');
+      }
+    } catch (err) { log.push(`FAIL materials editor band :: ${err.message}`); }
+
     const esc = qa('button').find((b) => /close|done|cancel/i.test(b.textContent) && b.offsetParent !== null);
     if (esc) esc.click();
     log.push(`closed: no visible overlay=${!qa('.overlay').some((m) => m.offsetParent !== null)}`);

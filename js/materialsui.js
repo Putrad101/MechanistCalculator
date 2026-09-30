@@ -89,6 +89,10 @@ const renderList = renderResults;
 
 const sfField = (m, tool, key) => {
   const t = m.tools[tool.id];
+  // Turning feeds are a band per revolution, not a single number, because a
+  // material level range is all the shipped data can honestly support. These are
+  // the fields you would edit once you have proved a figure on your own inserts.
+  const tf = (m.turnFeed && m.turnFeed[tool.id]) || null;
   return `<div class="mat-tool">
     <div class="mat-tool-head">
       <strong>${units.escapeHtml(tool.label)}</strong>
@@ -97,6 +101,10 @@ const sfField = (m, tool, key) => {
     <div class="row">
       ${field({ label: 'SFM', name: `${key}_${tool.id}_sfm`, value: t ? units.fmt(t.sfm, 1) : '', step: 5 })}
       ${field({ label: 'IPT', name: `${key}_${tool.id}_ipt`, value: t ? units.fmt(t.ipt, 5) : '', step: 0.0002 })}
+    </div>
+    <div class="row">
+      ${field({ label: 'Turning feed min (in/rev)', name: `tf_${tool.id}_lo`, value: tf ? units.fmt(tf[0], 5) : '', step: 0.0002, hint: 'Starting range for turning. Leave blank if you have no figure for this material and tooling.' })}
+      ${field({ label: 'Turning feed max (in/rev)', name: `tf_${tool.id}_hi`, value: tf ? units.fmt(tf[1], 5) : '', step: 0.0002 })}
     </div>
   </div>`;
 };
@@ -173,10 +181,18 @@ const saveFromForm = (m) => {
     return input ? input.value : '';
   };
   const tools = {};
+  const turnFeed = {};
   for (const t of mat.TOOL_TYPES) {
     const sfm = units.parseValue(get(`t_${t.id}_sfm`));
     const ipt = units.parseValue(get(`t_${t.id}_ipt`));
     tools[t.id] = Number.isFinite(sfm) && Number.isFinite(ipt) && sfm > 0 && ipt > 0 ? { sfm, ipt } : null;
+
+    const lo = units.parseValue(get(`tf_${t.id}_lo`));
+    const hi = units.parseValue(get(`tf_${t.id}_hi`));
+    // A band needs two numbers, and they have to be the right way round. Half a
+    // band is not a band, so an incomplete or reversed entry is dropped rather
+    // than stored as something the Table Feed page would later seed from.
+    turnFeed[t.id] = Number.isFinite(lo) && Number.isFinite(hi) && lo > 0 && hi >= lo ? [lo, hi] : null;
   }
   const draft = {
     ...m,
@@ -184,6 +200,7 @@ const saveFromForm = (m) => {
     group: get('group') || 'Other',
     kc: units.parseValue(get('kc')) || 1500,
     tools,
+    turnFeed,
     notes: get('notes') || '',
   };
   mat.upsertMaterial(draft);
