@@ -26,6 +26,7 @@ const SHELL = [
   './js/calc/threads.js',
   './js/calc/mrr.js',
   './js/calc/fractions.js',
+  './js/calc/mmtoinch.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-maskable-512.png',

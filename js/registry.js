@@ -6,9 +6,10 @@ import drill from './calc/drill.js';
 import threads from './calc/threads.js';
 import mrr from './calc/mrr.js';
 import fractions from './calc/fractions.js';
+import mmtoinch from './calc/mmtoinch.js';
 
 export const CALCULATORS = [
-  rpm, tablefeed, feedrev, boltcircle, drill, threads, mrr, fractions,
+  rpm, tablefeed, feedrev, boltcircle, drill, threads, mrr, fractions, mmtoinch,
 ];
 
 export const byId = (id) => CALCULATORS.find((c) => c.id === id) || null;

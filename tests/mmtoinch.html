@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>mm to inch - checks</title>
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 1rem; }
+  pre { white-space: pre-wrap; }
+  .pass { color: #0a6; } .fail { color: #c00; font-weight: 600; }
+  iframe { width: 430px; height: 1100px; border: 1px solid #ccc; }
+</style>
+</head>
+<body>
+<h1>mm to inch page: conversion, direction toggle, tap sizes</h1>
+<pre id="out">running...</pre>
+<iframe id="app" src="../index.html"></iframe>
+<script type="module">
+// The mm-to-inch page converts 25.4 mm per inch either way, shows a shop
+// fraction and a Thou/Millimetres/Centimetres/Metres line, and carries the
+// current value over when the direction is flipped.
+const results = [];
+const check = (name, got, want) => {
+  const ok = String(got) === String(want);
+  results.push({ name, got, want, ok });
+};
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const frame = document.getElementById('app');
+let waited = 0;
+while (waited < 10000) {
+  const doc = frame.contentDocument;
+  if (doc && doc.querySelector('#nav-list .nav-item')) break;
+  await sleep(150);
+  waited += 150;
+}
+const d = frame.contentDocument;
+const W = frame.contentWindow;
+const errs = [];
+W.addEventListener('error', (e) => errs.push(`${e.message} @ ${e.filename}:${e.lineno}`));
+
+d.querySelector('.nav-item[data-calc="mmtoinch"]').click();
+await sleep(450);
+const root = () => d.querySelector('.calc-slot:not([hidden])');
+const rowValue = (needle) => {
+  const r = [...root().querySelectorAll('.res-row')].find((x) => x.textContent.includes(needle));
+  return r ? r.textContent.replace(/\s+/g, ' ').trim() : null;
+};
+const setMode = async (m) => {
+  root().querySelector(`.seg[data-value="${m}"]`).click();
+  await sleep(450);
+};
+const setValue = async (v) => {
+  const el = root().querySelector('[data-f="value"]');
+  el.value = v;
+  el.dispatchEvent(new W.Event('input', { bubbles: true }));
+  await sleep(320);
+};
+const valueUnit = () => {
+  const el = root().querySelector('[data-f="value"]');
+  const wrap = el && el.closest('.field');
+  const u = wrap && wrap.querySelector('.field-unit');
+  return u ? u.textContent.trim() : null;
+};
+const tap = async (text) => {
+  [...root().querySelectorAll('.frac')].find((b) => b.textContent.trim() === text).click();
+  await sleep(320);
+};
+const bodyHas = (re) => re.test(root().textContent.replace(/\s+/g, ' '));
+
+// The page must not depend on saved state from a previous visit, so clear it.
+try { W.localStorage.removeItem('mechcalc:calcState:mmtoinch'); } catch { /* ignore */ }
+
+// --- default direction is mm to inch ---
+check('default direction is mm → in', root().querySelector('.seg[data-value="mmToIn"]').classList.contains('is-active'), true);
+check('the value field defaults to mm units', valueUnit(), 'mm');
+check('default 10 mm reads 0.3937 in', /0\.3937in/.test(rowValue('Inches') || ''), true);
+check('10 mm is 393.7 thou', /393\.7 thou/.test(rowValue('Thou') || ''), true);
+check('10 mm is reported as millimetres', /10\.000 mm/.test(rowValue('Millimetres') || ''), true);
+check('10 mm is 1 cm and 0.01 m', /1\.0000 cm/.test(rowValue('Centimetres') || '') && /0\.01000 m/.test(rowValue('Metres') || ''), true);
+
+// --- 12.7 mm is exactly 1/2 in ---
+await setValue('12.7');
+check('12.7 mm reads as a half inch', /1\/2/.test(rowValue('As a fraction') || ''), true);
+check('12.7 mm marks the fraction exact', bodyHas(/Exact\./), true);
+
+// --- 3/8 in typed as a fraction on a flip to inches ---
+await setMode('inToMm');
+check('flipping sets the value field to inches', valueUnit(), 'in');
+check('the carried 12.7 mm becomes 0.5 in', root().querySelector('[data-f="value"]').value, '0.5');
+check('0.5 in reads back as 12.7 mm', /12\.700 mm/.test(rowValue('Millimetres') || ''), true);
+await setValue('3/8');
+check('3/8 in is 9.525 mm', /9\.525 mm/.test(rowValue('Millimetres') || ''), true);
+check('3/8 in shows the exact fraction row', /3\/8/.test(rowValue('As a fraction') || ''), true);
+
+// --- a size over a foot lands on feet and inches ---
+await setValue('14');
+check('14 in reads back 355.6 mm', /355\.600 mm/.test(rowValue('Millimetres') || ''), true);
+check('14 in shows feet and inches', /1 ft 2 in/.test(rowValue('Feet and inches') || ''), true);
+
+// --- the inch tap grid fills the field on the imperial side ---
+await tap('1/4');
+check('tapping 1/4 sets the value field', root().querySelector('[data-f="value"]').value, '0.25');
+check('1/4 in is 6.35 mm', /6\.350 mm/.test(rowValue('Millimetres') || ''), true);
+
+// --- back to metric: the value carries over and the tap grid switches ---
+await setMode('mmToIn');
+check('0.25 in carried over becomes 6.35 mm', root().querySelector('[data-f="value"]').value, '6.35');
+check('the tap grid shows metric sizes again', [...root().querySelectorAll('.frac')].some((b) => b.textContent.trim() === '10'), true);
+await tap('25');
+check('25 mm is a 63/64 approximation on the inch line', /63\/64/.test(rowValue('Inches') || '') && /0\.9843/.test(rowValue('Inches') || ''), true);
+check('25 mm is flagged as a non-exact fraction', bodyHas(/Nearest 1\/64th, not exact/), true);
+
+// --- bad input is refused, blank input is silent ---
+await setValue('banana');
+check('an unreadable value is refused', /Could not calculate/.test(root().querySelector('.calc-results').textContent), true);
+await setValue('');
+check('a blank value leaves no results', root().querySelectorAll('.res-row').length, 0);
+
+const failed = results.filter((r) => !r.ok);
+const lines = results.map((r) => `${r.ok ? 'pass' : 'FAIL'}  ${r.name}${r.ok ? '' : `\n        got  ${r.got}\n        want ${r.want}`}`);
+lines.push('');
+lines.push(failed.length ? `${failed.length} of ${results.length} checks failed` : `all ${results.length} checks passed`);
+lines.push(`errors: ${errs.length ? errs.join(' | ') : 'none'}`);
+const out = document.getElementById('out');
+out.textContent = lines.join('\n');
+out.className = failed.length ? 'fail' : 'pass';
+document.title = failed.length ? 'FAIL mm to inch' : 'PASS mm to inch';
+</script>
+</body>
+</html>

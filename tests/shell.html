@@ -230,7 +230,7 @@ try {
           const urls = keys.map((k) => new URL(k.url).pathname.replace(/^\//, ''));
           log.push(`cached entries: ${keys.length}`);
           const need = ['index.html', 'css/app.css', 'js/main.js', 'js/tables.js',
-            'js/calc/rpm.js', 'js/calc/fractions.js', 'manifest.webmanifest', 'icons/icon-192.png'];
+            'js/calc/rpm.js', 'js/calc/fractions.js', 'js/calc/mmtoinch.js', 'manifest.webmanifest', 'icons/icon-192.png'];
           const missing = need.filter((n) => !urls.includes(n));
           log.push(`missing from cache: ${missing.length ? missing.join(', ') : 'none'}`);
         }

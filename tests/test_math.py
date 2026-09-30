@@ -254,6 +254,24 @@ def test_fractions():
     check("25.4 mm is 1 in", 25.4 / IN, 1.0)
 
 
+def test_mm_inch_conversion():
+    # The mm-to-inch page is built directly on 25.4 mm per inch, so pin the
+    # table of common metric stock against its inch decimal.
+    ok("10 mm is 0.3937 in", abs(10.0 / IN - 0.3937008) < 1e-6)
+    ok("5 mm is 0.1968504 in", abs(5.0 / IN - 0.1968504) < 1e-7)
+    ok("12.7 mm is exactly 1/2 in", 12.7 / IN == 0.5)
+    check("3/8 in is 9.525 mm", 0.375 * IN, 9.525)
+    check("1 in is 25.4 mm", 1.0 * IN, 25.4)
+    check("1 thou is 0.0254 mm", 0.001 * IN, 0.0254)
+    ok("1 mm is 39.3701 thou", abs((1.0 / IN) * 1000.0 - 39.3701) < 1e-3)
+    check("mm to inch round trip", (12.345 / IN) * IN, 12.345, 1e-12)
+    check("inch to mm round trip", (0.4321 * IN) / IN, 0.4321, 1e-12)
+    # The nearest-1/64th reading the page shows for 5 mm.
+    nearest_num = round(5.0 / IN * 64.0)
+    ok("5 mm nearest 64th is 13/64", (nearest_num, 64) == (13, 64))
+    ok("5 mm is not an exact 64th", abs(5.0 / IN - nearest_num / 64.0) > 1e-9)
+
+
 # ------------------------------------------------------ shipped table data
 
 def read_js():
@@ -487,6 +505,7 @@ def main():
         test_threads,
         test_mrr,
         test_fractions,
+        test_mm_inch_conversion,
         test_unified_table,
         test_metric_table,
         test_drill_tables,

@@ -19,6 +19,7 @@ kind. Plain HTML, CSS and JavaScript modules.
 | **Threads** | Unified and ISO geometry, percent thread, tap drill, roll tap drill, and G84/G85 blocks. |
 | **MRR** | Material removal rate, stepover, cycle time and power, for milling, turning and drilling. |
 | **Fractions** | Fraction and decimal conversion, plus the number, letter and fractional drill charts. |
+| **mm ↔ in** | Convert millimetres to inches and back, with the nearest shop fraction, feet-and-inches, and the common sizes you will actually meet. |
 
 Every result shows both units at once. The unit toggle in the header only decides
 which one is bolded and which unit the input fields start in.
@@ -268,6 +269,7 @@ Other formulas:
 | Bolt circle chord | `chord = BCD sin(180 / holes)` |
 | Cycle time | `length / feed` |
 | Power | `P = kc x Q / 6e7`, in kW with `kc` in N/mm2 and `Q` in mm3/min |
+| Length conversion | `in = mm / 25.4`, with the fraction shown to the nearest step on a 1/64th grid |
 
 Tapping is the only row here where feed follows from speed, and the reason is
 that the feed is not free: it has to advance the tap by exactly one lead per
@@ -276,6 +278,11 @@ revolution or the thread will not form.
 Facing uses the true circular segment rather than the usual `ae x ap` rectangle,
 because the rectangle overstates a shallow cut by a lot. The app says so where it
 matters.
+
+The mm-to-inch page exists because the two unit systems never meet on a round
+number: 25.4 mm is not a fraction of an inch, so the same size reads differently
+in every shop. The page answers "what is this in the other unit" in both
+directions in one place.
 
 ## Adding a calculator
 
@@ -299,16 +306,17 @@ shipped tables in `js/tables.js` and the turning feed bands in `js/materials.js`
 for self-consistency: ranges that are not inverted, carbide above HSS, and the
 relative ordering of materials that are genuinely harder to machine.
 
-The browser side has three suites. Start the server first, then open:
+The browser side has four suites. Start the server first, then open:
 
 | URL | What it checks |
 | --- | --- |
-| `index.html?selftest=1` | 119 maths, unit-parsing, material-data and G-code assertions, listed with pass and fail. |
-| `tests/smoke.html` | Mounts all eight calculators, computes, and drives every segmented control and stepper. |
+| `index.html?selftest=1` | 132 maths, unit-parsing, material-data and G-code assertions, listed with pass and fail. |
+| `tests/smoke.html` | Mounts all nine calculators, computes, and drives every segmented control and stepper. |
 | `tests/shell.html` | Drives the real app in an iframe: navigation, search, unit toggle, settings, and the materials manager. |
 | `tests/migrate.html` | Proves the material seed migration upgrades untouched rows and never overwrites a hand-edited one. |
 | `tests/rpm.html` | Drives the RPM page in both lathe and mill mode: the diameter label, the workpiece field, and that no feed is ever reported. |
 | `tests/turning.html` | The G-code emitter against the defects it had, plus the turning side of Table Feed: band seeding, in and out of range, and the milling/turning switch. |
+| `tests/mmtoinch.html` | Drives the mm-to-inch page both ways: the fraction rows, the carried-over value when the direction flips, the tap grid, and bad input. |
 
 None of these need a test framework. They are ES modules and plain Python on
 purpose, so they run anywhere the app does.

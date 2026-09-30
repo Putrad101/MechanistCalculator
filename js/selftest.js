@@ -195,6 +195,27 @@ export const run = () => {
   });
   test('every Unified thread in the table lands between 60 and 92 percent', outOfRange.length, 0);
 
+  // mm to inch conversion. One inch is exactly 25.4 mm.
+  near('10 mm is 0.3937 in', units.fromCanonical(10, 'in', 'length'), 0.3937008, 0.00001);
+  near('12.7 mm is exactly 1/2 in', units.fromCanonical(12.7, 'in', 'length'), 0.5, 1e-9);
+  near('1 in is 25.4 mm', units.toCanonical(1, 'in', 'length'), 25.4, 1e-12);
+  near('3/8 in is 9.525 mm', units.toCanonical(0.375, 'in', 'length'), 9.525, 1e-12);
+  near('5 mm rounds to 13/64 in', (() => {
+    const f = units.fractionFor(5 / 25.4, { maxDen: 64, denoms: [1, 2, 4, 8, 16, 32, 64] });
+    return f.num / f.den;
+  })(), 13 / 64, 0);
+  near('25 mm rounds to 63/64 in', (() => {
+    const f = units.fractionFor(25 / 25.4, { maxDen: 64, denoms: [1, 2, 4, 8, 16, 32, 64] });
+    return f.num / f.den;
+  })(), 63 / 64, 0);
+  near('25 mm is 0.9843 in', units.fromCanonical(25, 'in', 'length'), 0.984252, 0.00001);
+  near('a thousandth is 0.0254 mm', units.toCanonical(1, 'thou', 'length'), 0.0254, 1e-12);
+  near('1 mm is 39.37 thou', units.fromCanonical(1, 'thou', 'length'), 39.3701, 0.0001);
+  test('mm to inch round trip returns the same millimetres', units.toCanonical(units.fromCanonical(7.5, 'in', 'length'), 'in', 'length'), 7.5);
+  test('inch to mm round trip returns the same inches', units.fromCanonical(units.toCanonical(0.4375, 'in', 'length'), 'in', 'length'), 0.4375);
+  test('1/64 in is detected exactly at the 64ths cap', units.fractionFor(1 / 64, { maxDen: 64 }).exact, true);
+  test('a 5 mm measure is not an exact 64th', units.fractionFor(5 / 25.4, { maxDen: 64 }).exact, false);
+
   const failed = cases.filter((c) => !c.pass);
   return { total: cases.length, failed: failed.length, cases, ok: failed.length === 0 };
 };
